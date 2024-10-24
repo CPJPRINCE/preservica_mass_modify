@@ -1,0 +1,5 @@
+__pycache__/
+dist/
+.vscode/
+.venv/
+preservica_mass_modify.egg-info/

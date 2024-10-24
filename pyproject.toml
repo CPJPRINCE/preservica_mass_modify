@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "preservica_mass_modify"
+version = "1.0.0"
+authors = [
+    {name="Christopher Prince", email="c.pj.prince@gmail.com"}
+    ]
+description = "A Tool for enabling Mass modifications of Folders and Assets on Preservica through Spreadsheets"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Topic :: System :: Archiving"
+    ]
+dependencies=["pypreservica","pandas","openpyxl","lxml"]
+[project.urls]
+Homepage = "https://github.com/CPJPRINCE/presvica_mass_modify"
+Issues = "https://github.com/CPJPRINCE/presvica_mass_modify/issues"
+[project.scripts]
+preservica_modify = "presvica_mass_modify.cli:run_cli"
+
+[tool.setuptools.packages.find]
+where = ['.']
+include = ['preservica_modify']
+exclude = []
