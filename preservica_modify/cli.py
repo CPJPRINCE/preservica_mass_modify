@@ -22,6 +22,7 @@ def parse_args():
     parser.add_argument("-u","--username", type=str)
     parser.add_argument("-p", "--password", type=str)
     parser.add_argument("-s", "--server", type=str)
+    parser.add_argument("-del", "--delete", action="store_true")
     parser.add_argument("-d", "--descendants", nargs = "+", choices = ["include-assets",
                                                                        "include-folders",
                                                                        "include-title",

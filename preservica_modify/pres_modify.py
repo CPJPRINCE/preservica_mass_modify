@@ -26,7 +26,8 @@ class PreservicaMassMod():
                  dummy: bool = False,
                  username: str = None,
                  password: str = None,
-                 server: str = None):
+                 server: str = None,
+                 delete: bool = False):
         if excel_file.endswith(".xlsx"):
             self.df = pd.read_excel(excel_file)
         elif excel_file.endswith(".csv"):
@@ -39,6 +40,7 @@ class PreservicaMassMod():
         self.merge_add = "merge"
         self.dummy_flag = dummy
         self.blank_override = blank_override
+        self.delete_flag = delete
         self.descendants_flag = descendants
         self.username = username
         self.password = password
@@ -66,6 +68,7 @@ class PreservicaMassMod():
         self.description_flag = False
         self.security_flag = False
         self.retention_flag = False
+        self.dest_flag = False
         if 'Title' in self.column_headers:
             self.title_flag = True
         if 'Description' in self.column_headers:
@@ -74,6 +77,8 @@ class PreservicaMassMod():
             self.security_flag = True
         if 'Retention Policy' in self.column_headers:
             self.retention_flag = True
+        if 'Move To' in self.column_headers:
+            self.dest_flag = True
 
     def get_retentions(self):
         self.policies = self.retention.policies()
@@ -376,6 +381,40 @@ class PreservicaMassMod():
             else:
                 self.entity.update_metadata(e, ns, xml_to_upload.decode('utf-8'))
 
+    def dest_update(self, idx: pd.Index, e: Entity):
+        if self.dest_flag is True:
+            if idx.empty:
+                pass
+            else: 
+                dest = self.df['Move To'].loc[idx].item()
+                if re.search("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",dest):
+                    dest_folder = self.entity.folder(dest)
+                    if self.dummy_flag:
+                        print(f'Moving Entity: {e}, to: {dest_folder.reference, dest_folder.title}')
+                    else:
+                        self.entity.move_async(entity=e, dest_folder=dest_folder)
+                else:
+                    print(f'Error: Preservica Reference in Move To is incorrect: {dest}')
+                    raise SystemExit()
+
+    def delete_lookup(self, idx: pd.Index, e:Entity):
+        if self.delete_flag is True:
+            if idx.empty:
+                pass
+            else:
+                delete_conf = self.df['Delete'].loc[idx].item()
+                if bool(delete_conf) is True:
+                    if e.entity_type == EntityType.ASSET:
+                        if self.dummy_flag:
+                            print(f'Deleting Asset: {e}')
+                        else:
+                            self.entity.delete_asset(e)
+                    elif e.entity_type == EntityType.FOLDER:
+                        if self.dummy_flag:
+                            print(f'Deleting Folder: {e}')
+                        else:
+                            self.entity.delete_folder(e)
+        
     def main(self):
         self.set_input_flags()
         self.init_generate_descriptive_metadata()
@@ -399,6 +438,9 @@ class PreservicaMassMod():
                 except:
                     e = self.entity.folder(ref)
             idx = self.df['Entity Ref'].index[self.df['Entity Ref'] == ref]
+            if self.delete_flag is True:
+                self.delete_lookup(idx, e)
+                continue
             if e.entity_type == EntityType.ASSET:
                 self.retention_update(idx,e)
             title,description,security = self.xip_update(idx, e)
@@ -408,41 +450,48 @@ class PreservicaMassMod():
                 ns = xml.get('localns')
                 self.xnames = [x.get('XName') for x in xml.get('data')]
                 self.xml_update(e,ns=ns)
-                if self.descendants_flag:
-                    if e.entity_type == EntityType.FOLDER:
-                        for ed in self.entity.all_descendants(e):
-                            print(f"Processing Descendant: {ed.reference}")
-                            de = self.entity.entity(ed.entity_type,ed.reference)
-                            if "include-assets" in self.descendants_flag and de.entity_type == EntityType.ASSET:
-                                if not any(x in ["include-xml","include-retention","include-description","include-security","include-title","include-identifiers"] for x in self.descendants_flag):
-                                    print('No data to process. Ensure you select 1 option of data to edit')
-                                if any(x in ["include-xml","include-all"] for x in self.descendants_flag):
-                                    self.xml_update(de,ns=ns)
-                                if any(x in ["include-identifiers","include-all"] for x in self.descendants_flag):
-                                    self.ident_update(idx, de)
-                                # xml_update reutilises the metadata generated above - it will merge the data from the spreadsheet, with the data from the descendant's Entity...
-                                if any(x in ["include-retention","include-all"] for x in self.descendants_flag):
-                                    self.retention_update(idx, de)
-                                if any(x in ["include-all","include-title","include-description","include-security"] for x in self.descendants_flag):
-                                    if not "include-title" in self.descendants_flag:
-                                        title = None
-                                    if not any(x in ["include-all","include-description"] for x in self.descendants_flag):
-                                        description = None
-                                    if not any(x in ["include-all","include-security"] for x in self.descendants_flag):
-                                        security = None
-                                    #idx is not doing anything here
-                                    self.xip_update(idx,de,title_override=title,description_override=description,security_override=security)
-                            elif "include-folders" in self.descendants_flag and de.entity_type == EntityType.FOLDER:
-                                if "include-xml" in self.descendants_flag:
-                                    self.xml_update(de,ns=ns)
-                                if "include-identifiers" in self.descendants_flag:
-                                    self.ident_update(idx, de)
-                                if any(x in ["include-title","include-description","include-security"] for x in self.descendants_flag):
-                                    if not "include-title" in self.descendants_flag:
-                                        title = None
-                                    if not "include-description" in self.descendants_flag:
-                                        description = None
-                                    if not "include-security" in self.descendants_flag:
-                                        security = None
-                                    #idx is not doing anything here
-                                    self.xip_update(idx,de,title_override=title,description_override=description,security_override=security)
+            self.dest_update(idx, e)
+            if self.descendants_flag:
+                if e.entity_type == EntityType.FOLDER:
+                    for ed in self.entity.all_descendants(e):
+                        print(f"Processing Descendant: {ed.reference}")
+                        de = self.entity.entity(ed.entity_type,ed.reference)
+                        if "include-assets" in self.descendants_flag and de.entity_type == EntityType.ASSET:
+                            if not any(x in ["include-xml","include-retention","include-description","include-security","include-title","include-identifiers"] for x in self.descendants_flag):
+                                print('No data to process. Ensure you select 1 option of data to edit')
+                            if any(x in ["include-xml","include-all"] for x in self.descendants_flag):
+                                for xml in self.xml_files:
+                                    ns = xml.get('localns')
+                                    self.xml_update(e,ns=ns)
+                            if any(x in ["include-identifiers","include-all"] for x in self.descendants_flag):
+                                self.ident_update(idx, de)
+                            # xml_update reutilises the metadata generated above - it will merge the data from the spreadsheet, with the data from the descendant's Entity...
+                            if any(x in ["include-retention","include-all"] for x in self.descendants_flag):
+                                self.retention_update(idx, de)
+                            if any(x in ["include-all","include-title","include-description","include-security"] for x in self.descendants_flag):
+                                if not "include-title" in self.descendants_flag:
+                                    title = None
+                                if not any(x in ["include-all","include-description"] for x in self.descendants_flag):
+                                    description = None
+                                if not any(x in ["include-all","include-security"] for x in self.descendants_flag):
+                                    security = None
+                                #idx is not doing anything here
+                                self.xip_update(idx,de,title_override=title,description_override=description,security_override=security)
+                        elif "include-folders" in self.descendants_flag and de.entity_type == EntityType.FOLDER:
+                            if not any(x in ["include-xml","include-retention","include-description","include-security","include-title","include-identifiers"] for x in self.descendants_flag):
+                                print('No data to process. Ensure you select 1 option of data to edit')
+                            if any(x in ["include-xml","include-all"] for x in self.descendants_flag):
+                                for xml in self.xml_files:
+                                    ns = xml.get('localns')
+                                    self.xml_update(e,ns=ns)
+                            if any(x in ["include-identifiers","include-all"] for x in self.descendants_flag):
+                                self.ident_update(idx, de)
+                            if any(x in ["include-title","include-description","include-security"] for x in self.descendants_flag):
+                                if not "include-title" in self.descendants_flag:
+                                    title = None
+                                if not any(x in ["include-all","include-description"] for x in self.descendants_flag):
+                                    description = None
+                                if not any(x in ["include-all","include-security"] for x in self.descendants_flag):
+                                    security = None
+                                #idx is not doing anything here
+                                self.xip_update(idx,de,title_override=title,description_override=description,security_override=security)
