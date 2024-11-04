@@ -19,9 +19,6 @@ def parse_args():
     parser.add_argument("-mdir","--metadata_dir", required = True)
     parser.add_argument("-x","--xml_method", default = "flat", choices=["flat","exact"])
     parser.add_argument("-clr","--blank-override", default = False, action="store_true")
-    parser.add_argument("-u","--username", type=str)
-    parser.add_argument("-p", "--password", type=str)
-    parser.add_argument("-s", "--server", type=str)
     parser.add_argument("-del", "--delete", action="store_true")
     parser.add_argument("-d", "--descendants", nargs = "+", choices = ["include-assets",
                                                                        "include-folders",
@@ -31,28 +28,26 @@ def parse_args():
                                                                        "include-retention",
                                                                        "include-xml",
                                                                        "include-identifier"])
+    mgroup = parser.add_mutually_exclusive_group(required=True)
+    mgroup.add_argument("-u", "--username", type=str)
+    parser.add_argument("-p", "--password", type=str)
+    parser.add_argument("-s", "--server", type=str)
+    parser.add_argument("--tenant", type=str)
+    mgroup.add_argument("--use-credentials", nargs='?', const=os.path.join(os.getcwd(),"credentials.properties"))
     parser.add_argument("--dummy", action="store_true")
     args = parser.parse_args()
     return args
 
 def run_cli():
     args = parse_args()
-    try:
-        import secret
-        print('Using secret File')
-        args.username = secret.username
-        args.password = secret.password
-        args.server = secret.server
-    except:
-        pass
     if not os.path.isfile(os.path.abspath(args.input)) or not args.input.endswith((".xlsx",".csv")):
         print("Invlaid file selected for input, closing program...")
-        time.sleep(5)
-        raise SystemExit()
+        #time.sleep(5)
+        #raise SystemExit()
     if not os.path.isdir(os.path.abspath(args.metadata_dir)):
         print("Invlaid folder selected for metadata directory, closing program...")
-        time.sleep(5)
-        raise SystemExit()
+        #time.sleep(5)
+        #raise SystemExit()
     if args.descendants:
         if not any(x in ["include-assets","include-folders"] for x in args.descendants):
             print('Descendants must include either "include-assets" or "include-folders"')
@@ -73,5 +68,7 @@ def run_cli():
                             username=args.username,
                             password=args.password,
                             server=args.server,
-                            dummy=args.dummy).main()
+                            tenant=args.tenant,
+                            dummy=args.dummy,
+                            credentials=args.use_credentials).main()
 run_cli()

@@ -1,4 +1,3 @@
-
 """
 Preservica Mass Modification tool.
 
@@ -15,6 +14,7 @@ import pandas as pd
 from lxml import etree as ET
 from datetime import datetime
 import time, os
+from common import *
 
 class PreservicaMassMod():
     def __init__(self,
@@ -27,14 +27,12 @@ class PreservicaMassMod():
                  username: str = None,
                  password: str = None,
                  server: str = None,
+                 tenant: str = None,
+                 credentials: str = None,
                  delete: bool = False):
-        if excel_file.endswith(".xlsx"):
-            self.df = pd.read_excel(excel_file)
-        elif excel_file.endswith(".csv"):
-            self.df = pd.read_csv(excel_file)
-            nl = [ch for ch in self.df if "date" in ch]
-            self.df[nl] = self.df[nl].apply(lambda x: pd.to_datetime(x,format='mixed'))
-        self.column_headers = list(self.df)
+        """
+        Class init
+        """
         self.metadata_dir = metadata_dir
         self.metadata_flag = xml_method
         self.merge_add = "merge"
@@ -42,51 +40,84 @@ class PreservicaMassMod():
         self.blank_override = blank_override
         self.delete_flag = delete
         self.descendants_flag = descendants
+
+        #Hard set to False for now.
+        self.credentials_file = False
         self.username = username
         self.password = password
         self.server = server
+        self.tenant = tenant
         self.login_preservica()
 
+        if excel_file.endswith(".xlsx"):
+            self.df = pd.read_excel(excel_file)
+        elif excel_file.endswith(".csv"):
+            self.df = pd.read_csv(excel_file)
+            nl = [ch for ch in self.df if "date" in ch]
+            self.df[nl] = self.df[nl].apply(lambda x: pd.to_datetime(x,format='mixed'))
+        self.column_headers = list(self.df)
+
     def login_preservica(self):
-        if None in (self.username,self.password,self.server):
+        """
+        Logs into Preservica. Either through manually logging in.
+        """
+        if self.credentials_file:
+            try:
+                self.entity = EntityAPI(credentials_path=self.credentials_file)
+                self.content = ContentAPI(credentials_path=self.credentials_file)
+                self.retention = RetentionAPI(credentials_path=self.credentials_file)
+                print('Successfully logged into Preservica')
+            except Exception as e: 
+                print('Failed to login to Preservica...')
+                print(f'Exception: {e}')
+                time.sleep(5)
+                raise SystemExit()
+        elif None in (self.username,self.password,self.server):
             print('A Username, Password or Server has not been provided... Please try again...')
             time.sleep(5)
             raise SystemExit()
-        try:
-            self.content = ContentAPI(username=self.username, password=self.password,server=self.server)
-            self.entity = EntityAPI(username=self.username, password=self.password,server=self.server)
-            self.retention = RetentionAPI(username=self.username, password=self.password,server=self.server)
-            print('Successfully logged into Preservica')
-        except Exception as e: 
-            print('Failed to login to Preservica...')
-            print(f'Exception: {e}')
-            time.sleep(5)
-            raise SystemExit()
+        else:
+            try:
+                self.content = ContentAPI(username=self.username, password=self.password,server=self.server, tenant=self.tenant)
+                self.entity = EntityAPI(username=self.username, password=self.password,server=self.server, tenant=self.tenant)
+                self.retention = RetentionAPI(username=self.username, password=self.password,server=self.server, tenant=self.tenant)
+                print('Successfully logged into Preservica')
+            except Exception as e: 
+                print('Failed to login to Preservica...')
+                print(f'Exception: {e}')
+                time.sleep(5)
 
     def set_input_flags(self):
+        """
+        Sets the flags.
+        """
         self.title_flag = False
         self.description_flag = False
         self.security_flag = False
         self.retention_flag = False
         self.dest_flag = False
-        if 'Title' in self.column_headers:
+        if TITLE_FIELD in self.column_headers:
             self.title_flag = True
-        if 'Description' in self.column_headers:
+        if DESCRIPTION_FIELD in self.column_headers:
             self.description_flag = True
-        if 'Security' in self.column_headers:
+        if SECURITY_FIELD in self.column_headers:
             self.security_flag = True
-        if 'Retention Policy' in self.column_headers:
+        if RETENTION_FIELD in self.column_headers:
             self.retention_flag = True
-        if 'Move To' in self.column_headers:
+        if MOVETO_FIELD in self.column_headers:
             self.dest_flag = True
 
     def get_retentions(self):
+        """
+        Retrieves retention policies from Preservica and parses them into a dict
+        """
         self.policies = self.retention.policies()
         self.policy_dict = [{"Name": f.name, "Reference": f.reference} for f in self.policies]
 
-    # Possibly defunct Function - incorporated into xml_merge...
-    # Test if behaviour is now different.
     def xml_add(self, xml_a,xml_b, x_child=None):
+        """
+        An earlier variant of merge... Decraprecated - test and remove.
+        """
         for b_child in xml_b.findall('./'):
             a_child = xml_a.find('./' + b_child.tag)
             if a_child is None:
@@ -99,6 +130,9 @@ class PreservicaMassMod():
         return ET.tostring(xml_a)
 
     def xml_merge(self, xml_a: ET.Element, xml_b: ET.Element, x_parent = None):
+        """
+        Merges an two xml's together. xml_b overwrites xml_a. 
+        """
         for b_child in xml_b.findall('./'):
             a_child = xml_a.find('./' + b_child.tag)
             if a_child is not None:
@@ -157,19 +191,19 @@ class PreservicaMassMod():
                         if self.blank_override is True and ident is False:
                             if any(x[0] for x in xip_idents if x[0] == key_name):
                                 oldident = [x[1] for x in xip_idents if x[0] == key_name][0]
-                                if self.dummy_flag:
+                                if self.dummy_flag is True:
                                     print(f'Updating {e.reference} Deleting Identifer {key_name, oldident}')
                                 else:
                                     self.entity.update_identifiers(e,key_name,str(ident))
                         else:
                             if any(x[0] for x in xip_idents if x[0] == key_name):
                                 oldident = [x[1] for x in xip_idents if x[0] == key_name][0]
-                                if self.dummy_flag:
+                                if self.dummy_flag is True:
                                     print(f'Updating {e.reference} Updating identifer {key_name, oldident} to: {key_name, ident}')
                                 else:
                                     self.entity.update_identifiers(e,key_name,str(ident))
                             else: 
-                                if self.dummy_flag:
+                                if self.dummy_flag is True:
                                     print(f'Updating {e.reference} Adding identifier: {key_name, ident}')
                                 else:
                                     self.entity.add_identifier(e,key_name,str(ident))
@@ -179,6 +213,14 @@ class PreservicaMassMod():
             raise SystemError()
 
     def xip_update(self, idx: pd.Index, e: Entity, title_override: str = None, description_override: str = None, security_override: str = None):
+        """
+        Uses the pandas index to retreieve data from the "Title, Description and Security" columns.
+
+        Makes the calls on 
+
+        Has Override variables to use an override, mainly for applying to descdendants. 
+        """
+        
         try:
             title = None
             description = None
@@ -196,13 +238,13 @@ class PreservicaMassMod():
                     security = None
                 else:
                         if self.title_flag:
-                            title = self.df['Title'].loc[idx].item()
+                            title = self.df[TITLE_FIELD].loc[idx].item()
                             if str(title).lower() in {"nan","nat"}:
                                 title = None
                         else:
                             title = None
                         if self.description_flag:
-                            description = self.df['Description'].loc[idx].item()
+                            description = self.df[DESCRIPTION_FIELD].loc[idx].item()
                             if str(description).lower() in {"nan","nat"}:
                                 description = None
                             if str(description).lower() in {"nan","nat"} and self.blank_override is True:
@@ -210,23 +252,23 @@ class PreservicaMassMod():
                         else:
                             description = None
                         if self.security_flag:
-                            security = self.df['Security'].loc[idx].item()
+                            security = self.df[SECURITY_FIELD].loc[idx].item()
                             if str(security).lower() in {"nan","nat"}:
                                 security = None
                         else:
                             security = None
             if title:
-                if self.dummy_flag:
+                if self.dummy_flag is True:
                     print(f"Updating {e.reference} Title from {e.title} to {title}")
                 else:
                     e.title = title
             if description:
-                if self.dummy_flag:
+                if self.dummy_flag is True:
                     print(f"Updating {e.reference} Description from {e.description} to {description}")
                 else:
                     e.description = description
             if security:
-                if self.dummy_flag:
+                if self.dummy_flag is True:
                     print(f"Updating {e.reference} Security Tag from {e.security_tag} to {security}")
                 else:
                     e.security_tag = security
@@ -238,18 +280,23 @@ class PreservicaMassMod():
             raise SystemError()
 
     def retention_update(self, idx: pd.Index, e: Entity):
+        """
+        Uses the pandas index to retreieve data from the "Retention Policy" column
+
+        Matched agasint the policies obtained in the obtain_retentions function.
+        """
         try:
             if idx.empty:
                 rp = None
             else:
                 if self.retention_flag:
-                    rp = self.df['Retention Policy'].loc[idx].item()
+                    rp = self.df[RETENTION_FIELD].loc[idx].item()
                     assignments = self.retention.assignments(e)
                     if str(rp).lower() in {"nan","nat"} and self.blank_override:
                         rp = None
                         if any(assignments):
                             for ass in assignments:
-                                if self.dummy_flag:
+                                if self.dummy_flag is True:
                                     print(f"Updating {e.reference}, removing Retention Policy: {ass.reference, ass.name}")
                                 else:
                                     self.retention.remove_assignments(ass)
@@ -264,11 +311,11 @@ class PreservicaMassMod():
                         else:
                             if any(assignments):
                                 for ass in assignments:
-                                    if self.dummy_flag:
+                                    if self.dummy_flag is True:
                                         print(f"Updating {e.reference} Removing Retention Policy (part of update): {ass.reference, ass.name}")
                                     else:
                                         self.retention.remove_assignments(ass)
-                            if self.dummy_flag:
+                            if self.dummy_flag is True:
                                 print(f"Updating {e.reference} Adding Retention Policy: {d[0].get('Reference'), d[0].get('Name')}")
                             else:
                                 self.retention.add_assignments(e,self.retention.policy(d[0].get('Reference')))
@@ -277,9 +324,14 @@ class PreservicaMassMod():
             raise SystemError()
 
     def init_generate_descriptive_metadata(self):
+        """
+        Initiation for the generate_descriptive_metadata function. Seperated to avoid unecessary repetition.
+
+        Compares the Column headers in the spreadsheet agasint the XML's in the Metadata Directory.
+        """
         self.xml_files = []
         for file in os.scandir(self.metadata_dir):
-            if file.name.endswith('xml'):
+            if file.name.endswith('.xml'):
                 """
                 Generates info on the elements of the XML Files placed in the Metadata directory.
                 Composed as a list of dictionaries.
@@ -309,6 +361,9 @@ class PreservicaMassMod():
                 self.xml_files.append({'data': list_xml, 'localname': root_element_ln, 'localns': root_element_ns, 'xmlfile': path})
  
     def generate_descriptive_metadata(self, idx: int, xml_file: dict):
+        """
+        Generatees the xml file based on the returned list of xml_files from the init function.
+        """
         list_xml = xml_file.get('data')
         localname = xml_file.get('localname')
         """
@@ -361,10 +416,15 @@ class PreservicaMassMod():
             pass
             
     def xml_update(self, e: Entity, ns: str):
+        """
+        Makes the call on Preservica's API using pyPreservica to update, remove or add metadata from given entity.
+
+        The namespace must also be passed - this is retrieved automatically. 
+        """
         emeta = self.entity.metadata_for_entity(e, ns)
         if emeta is None:
             xml_to_upload = ET.tostring(self.xml_new)
-            if self.dummy_flag:
+            if self.dummy_flag is True:
                 print(f"Updating {e.reference} Adding Metadata")
             else:
                 self.entity.add_metadata(e,ns,xml_to_upload.decode('utf-8'))
@@ -376,68 +436,80 @@ class PreservicaMassMod():
                 print(xml_to_upload_b)
             elif self.merge_add == "add":
                 xml_to_upload = self.xml_add(ET.fromstring(emeta), self.xml_new)
-            if self.dummy_flag:
+            if self.dummy_flag is True:
                 print(f"Updating {e.reference} Updating Metadata")
             else:
                 self.entity.update_metadata(e, ns, xml_to_upload.decode('utf-8'))
 
     def dest_update(self, idx: pd.Index, e: Entity):
+        """
+        Uses the pandas index to retreieve data from the "Move To" column. Intitaites a move. 
+        """
         if self.dest_flag is True:
             if idx.empty:
                 pass
             else: 
-                dest = self.df['Move To'].loc[idx].item()
+                dest = self.df[MOVETO_FIELD].loc[idx].item()
                 if re.search("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",dest):
                     dest_folder = self.entity.folder(dest)
-                    if self.dummy_flag:
+                    if self.dummy_flag is True:
                         print(f'Moving Entity: {e}, to: {dest_folder.reference, dest_folder.title}')
                     else:
                         self.entity.move_async(entity=e, dest_folder=dest_folder)
                 else:
-                    print(f'Error: Preservica Reference in Move To is incorrect: {dest}')
+                    print(f'Error: Reference in "Move To" is incorrect: {dest}')
                     raise SystemExit()
 
     def delete_lookup(self, idx: pd.Index, e:Entity):
+        """
+        Uses the pandas index to retrieve data from the "Delete" column. If True intitaites a Delete.
+        Requires use of a .credentials file.
+
+        Delete Flag must also be set.
+        """
         if self.delete_flag is True:
             if idx.empty:
                 pass
             else:
-                delete_conf = self.df['Delete'].loc[idx].item()
+                delete_conf = self.df[DELETE_FIELD].loc[idx].item()
                 if bool(delete_conf) is True:
                     if e.entity_type == EntityType.ASSET:
-                        if self.dummy_flag:
+                        if self.dummy_flag is True:
                             print(f'Deleting Asset: {e}')
                         else:
                             self.entity.delete_asset(e)
                     elif e.entity_type == EntityType.FOLDER:
-                        if self.dummy_flag:
+                        if self.dummy_flag is True:
                             print(f'Deleting Folder: {e}')
                         else:
                             self.entity.delete_folder(e)
         
     def main(self):
+        """
+        Main loop.
+        """
         self.set_input_flags()
         self.init_generate_descriptive_metadata()
         if self.retention_flag is True:
             self.get_retentions()
-        if "Document type" in self.df:
-            reference_list = self.df[['Entity Ref', 'Document type']].to_dict('records')
+        if DOCUMENT_TYPE in self.df:
+            reference_list = self.df[[ENTITY_REF, DOCUMENT_TYPE]].to_dict('records')
         else:
-            reference_list = self.df['Entity Ref'].to_dict('records')
+            reference_list = self.df[ENTITY_REF].to_dict('records')
         for reference in reference_list:
-            ref = reference.get('Entity Ref')
+            ref = reference.get(ENTITY_REF)
             print(f"Processing: {ref}")
-            if "Document type" in reference:
-                if reference.get('Document type') == "SO":
+            if DOCUMENT_TYPE in reference:
+                if reference.get(DOCUMENT_TYPE) == "SO":
                     e = self.entity.folder(ref)
-                elif reference.get('Document type') == "IO":
+                elif reference.get(DOCUMENT_TYPE) == "IO":
                     e = self.entity.asset(ref)
             else:
                 try:
                     e = self.entity.asset(ref)
                 except:
                     e = self.entity.folder(ref)
-            idx = self.df['Entity Ref'].index[self.df['Entity Ref'] == ref]
+            idx = self.df[ENTITY_REF].index[self.df[ENTITY_REF] == ref]
             if self.delete_flag is True:
                 self.delete_lookup(idx, e)
                 continue
@@ -451,6 +523,9 @@ class PreservicaMassMod():
                 self.xnames = [x.get('XName') for x in xml.get('data')]
                 self.xml_update(e,ns=ns)
             self.dest_update(idx, e)
+            """
+            Descdenants handling
+            """
             if self.descendants_flag:
                 if e.entity_type == EntityType.FOLDER:
                     for ed in self.entity.all_descendants(e):
@@ -475,7 +550,7 @@ class PreservicaMassMod():
                                     description = None
                                 if not any(x in ["include-all","include-security"] for x in self.descendants_flag):
                                     security = None
-                                #idx is not doing anything here
+                                #To note idx is not being utilised in the function...
                                 self.xip_update(idx,de,title_override=title,description_override=description,security_override=security)
                         elif "include-folders" in self.descendants_flag and de.entity_type == EntityType.FOLDER:
                             if not any(x in ["include-xml","include-retention","include-description","include-security","include-title","include-identifiers"] for x in self.descendants_flag):
