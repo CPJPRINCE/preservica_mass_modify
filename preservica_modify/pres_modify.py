@@ -552,18 +552,15 @@ class PreservicaMassMod():
         if self.retention_flag is True:
             self.get_retentions()
         if DOCUMENT_TYPE in self.df and self.upload_flag is True:
-            reference_list = self.df[[ENTITY_REF, DOCUMENT_TYPE]].to_dict('records',index=True)
+            data_dict = self.df[[ENTITY_REF, DOCUMENT_TYPE]].to_dict('index')
         else:
-            reference_list = self.df[ENTITY_REF].to_dict('records',index=True)
-        for reference in reference_list:  
-            #idx = reference.get('index')
-            #print(idx)
-            idx = self.df[ENTITY_REF].index[self.df[ENTITY_REF] == ref]
-            print(idx)
-            ref = reference.get(ENTITY_REF)
+            data_dict = self.df[ENTITY_REF].to_dict('index')
+        for idx in data_dict:
+            reference_dict = data_dict.get(idx)
+            ref = reference_dict.get(ENTITY_REF)
             print(f"Processing: {ref}")
-            if DOCUMENT_TYPE in reference:
-                doc_type = reference.get(DOCUMENT_TYPE)
+            if DOCUMENT_TYPE in reference_dict:
+                doc_type = reference_dict.get(DOCUMENT_TYPE)
                 if doc_type == "SO":
                     e = self.entity.folder(ref)
                 elif doc_type == "IO":
@@ -586,7 +583,7 @@ class PreservicaMassMod():
                 self.xnames = [x.get('XName') for x in xml.get('data')]
                 self.xml_update(e,ns=ns)
             self.dest_update(idx, e)
-            if DOCUMENT_TYPE in reference and self.upload_flag is True:
+            if DOCUMENT_TYPE in reference_dict and self.upload_flag is True:
                 self.upload_processing(idx, ref, doc_type)
                 continue
             """
