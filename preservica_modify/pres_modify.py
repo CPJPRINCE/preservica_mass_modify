@@ -477,9 +477,43 @@ class PreservicaMassMod():
             raise SystemExit 
         if doc_type == "SO-Create":
             self.entity.create_folder(title=title,description=description,security_tag=security,parent=upload_folder)
-        elif doc_type == "IO-Upload":
-            if UPLOAD_FIELD in self.column_headers:
-                file_path = str(self.df[UPLOAD_FIELD].loc[idx].item())
+        elif doc_type == "SO-Upload":
+            if PRES_UPLOAD_FIELD and ACCESS_UPLOAD_FIELD in self.column_headers:
+                pres_folder_path = str(self.df[PRES_UPLOAD_FIELD].loc[idx].item())
+                access_folder_path = str(self.df[ACCESS_UPLOAD_FIELD].loc[idx].item())
+                if any([check_nan(pres_folder_path), check_nan(access_folder_path)] is None):
+                    print(f'Either Access or Upload path for {idx} is set to blank, please ensure a valid path is given for both')
+                    time.sleep(5)
+                    raise SystemExit()
+                ###Path...
+            if PRES_UPLOAD_FIELD in self.column_headers:
+                folder_path = str(self.df[PRES_UPLOAD_FIELD].loc[idx].item())
+                if check_nan(folder_path):
+                    print(f'The upload path for {idx} is set to blank, please ensure a valid path is given')
+                    time.sleep(5)
+                    raise SystemExit()
+                if os.path.isfolder(folder_path):
+                    try:
+                        self.entity.folder(upload_folder)
+                    except:
+                        print(f'The reference given {upload_folder} is not a valid folder on your Preservica Server')
+                        time.sleep(5)
+                        raise SystemError()
+                    file_list = [pth.path for pth in os.scandir(folder_path)]
+                    sip = complex_asset_package(file_list,parent_folder=upload_folder)
+                    callback = UploadProgressCallback(folder_path)
+                    self.upload.upload_zip_package(sip, folder=upload_folder, callback=callback)
+                else:
+                    print(f'The upload path for {idx} is not directed to a valid file')
+                    time.sleep(5)
+                    raise SystemExit()
+            else:
+                print(f'The upload path column: {PRES_UPLOAD_FIELD} is not present in the spreadsheet; please ensure it is with a valid path to folder')
+                time.sleep(5)
+                raise SystemExit()
+        elif doc_type == "IO-SimpleUpload":
+            if PRES_UPLOAD_FIELD in self.column_headers:
+                file_path = str(self.df[PRES_UPLOAD_FIELD].loc[idx].item())
                 if check_nan(file_path):
                     print(f'The upload path for {idx} is set to blank, please ensure a valid path is given')
                     time.sleep(5)
@@ -495,15 +529,15 @@ class PreservicaMassMod():
                         sip = simple_asset_package(file_path)
                     callback = UploadProgressCallback(file_path)
                     self.upload.upload_zip_package(sip, folder=upload_folder, callback=callback)
-                    complex_asset_package()
                 else:
                     print(f'The upload path for {idx} is not directed to a valid file')
                     time.sleep(5)
                     raise SystemExit()
             else:
-                print(f'The upload path column: {UPLOAD_FIELD} is not present in the spreadsheet; please ensure it is with a valid path to folder')
+                print(f'The upload path column: {PRES_UPLOAD_FIELD} is not present in the spreadsheet; please ensure it is with a valid path to folder')
                 time.sleep(5)
                 raise SystemExit()
+            
         elif doc_type == "PA-Create": 
             self.entity.add_physical_asset(title=title,description=description,security_tag=security,parent=upload_folder)
         else:
@@ -517,14 +551,17 @@ class PreservicaMassMod():
         self.init_generate_descriptive_metadata()
         if self.retention_flag is True:
             self.get_retentions()
-        if DOCUMENT_TYPE in self.df or self.upload_flag is True:
-            reference_list = self.df[[ENTITY_REF, DOCUMENT_TYPE]].to_dict('records')
+        if DOCUMENT_TYPE in self.df and self.upload_flag is True:
+            reference_list = self.df[[ENTITY_REF, DOCUMENT_TYPE]].to_dict('records',index=True)
         else:
-            reference_list = self.df[ENTITY_REF].to_dict('records')
-        for reference in reference_list:
+            reference_list = self.df[ENTITY_REF].to_dict('records',index=True)
+        for reference in reference_list:  
+            #idx = reference.get('index')
+            #print(idx)
+            idx = self.df[ENTITY_REF].index[self.df[ENTITY_REF] == ref]
+            print(idx)
             ref = reference.get(ENTITY_REF)
             print(f"Processing: {ref}")
-            idx = self.df[ENTITY_REF].index[self.df[ENTITY_REF] == ref]
             if DOCUMENT_TYPE in reference:
                 doc_type = reference.get(DOCUMENT_TYPE)
                 if doc_type == "SO":
@@ -536,8 +573,6 @@ class PreservicaMassMod():
                     e = self.entity.asset(ref)
                 except:
                     e = self.entity.folder(ref)
-            if DOCUMENT_TYPE in reference and self.upload_flag is True:
-                self.upload_processing(idx, ref, doc_type)
             if self.delete_flag is True:
                 self.delete_lookup(idx, e)
                 continue
@@ -551,6 +586,9 @@ class PreservicaMassMod():
                 self.xnames = [x.get('XName') for x in xml.get('data')]
                 self.xml_update(e,ns=ns)
             self.dest_update(idx, e)
+            if DOCUMENT_TYPE in reference and self.upload_flag is True:
+                self.upload_processing(idx, ref, doc_type)
+                continue
             """
             Descdenants handling
             """
