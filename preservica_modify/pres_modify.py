@@ -15,6 +15,7 @@ from lxml import etree as ET
 from datetime import datetime
 import time, os
 from common import *
+from options import *
 
 class PreservicaMassMod():
     def __init__(self,
@@ -35,11 +36,12 @@ class PreservicaMassMod():
         """
         self.metadata_dir = metadata_dir
         self.metadata_flag = xml_method
-        self.merge_add = "merge"
         self.dummy_flag = dummy
         self.blank_override = blank_override
         self.delete_flag = delete
         self.descendants_flag = descendants
+        
+        self.upload_flag = True
 
         #Hard set to False for now.
         self.credentials_file = False
@@ -66,6 +68,7 @@ class PreservicaMassMod():
                 self.entity = EntityAPI(credentials_path=self.credentials_file)
                 self.content = ContentAPI(credentials_path=self.credentials_file)
                 self.retention = RetentionAPI(credentials_path=self.credentials_file)
+                self.upload = UploadAPI(credentials_path=self.credentials_file)
                 print('Successfully logged into Preservica')
             except Exception as e: 
                 print('Failed to login to Preservica...')
@@ -81,6 +84,7 @@ class PreservicaMassMod():
                 self.content = ContentAPI(username=self.username, password=self.password,server=self.server, tenant=self.tenant)
                 self.entity = EntityAPI(username=self.username, password=self.password,server=self.server, tenant=self.tenant)
                 self.retention = RetentionAPI(username=self.username, password=self.password,server=self.server, tenant=self.tenant)
+                self.upload = UploadAPI(username=self.username, password=self.password,server=self.server, tenant=self.tenant)
                 print('Successfully logged into Preservica')
             except Exception as e: 
                 print('Failed to login to Preservica...')
@@ -113,21 +117,6 @@ class PreservicaMassMod():
         """
         self.policies = self.retention.policies()
         self.policy_dict = [{"Name": f.name, "Reference": f.reference} for f in self.policies]
-
-    def xml_add(self, xml_a,xml_b, x_child=None):
-        """
-        An earlier variant of merge... Decraprecated - test and remove.
-        """
-        for b_child in xml_b.findall('./'):
-            a_child = xml_a.find('./' + b_child.tag)
-            if a_child is None:
-                a_child = ET.SubElement(x_child,b_child.tag)
-                a_child.text = b_child.text
-            else:
-                x_child = a_child
-                self.xml_add(a_child,b_child,x_child)
-        print(ET.tostring(xml_a))
-        return ET.tostring(xml_a)
 
     def xml_merge(self, xml_a: ET.Element, xml_b: ET.Element, x_parent = None):
         """
@@ -360,9 +349,9 @@ class PreservicaMassMod():
             if len(list_xml) > 0:
                 self.xml_files.append({'data': list_xml, 'localname': root_element_ln, 'localns': root_element_ns, 'xmlfile': path})
  
-    def generate_descriptive_metadata(self, idx: int, xml_file: dict):
+    def generate_descriptive_metadata(self, idx: pd.Index, xml_file: dict):
         """
-        Generatees the xml file based on the returned list of xml_files from the init function.
+        Generates the xml file based on the returned list of xml_files from the init function.
         """
         list_xml = xml_file.get('data')
         localname = xml_file.get('localname')
@@ -429,13 +418,7 @@ class PreservicaMassMod():
             else:
                 self.entity.add_metadata(e,ns,xml_to_upload.decode('utf-8'))
         else:
-            if self.merge_add == "merge":
-                xml_to_upload = self.xml_merge(ET.fromstring(emeta), self.xml_new)
-                xml_to_upload_b = self.xml_add(ET.fromstring(emeta), self.xml_new)
-                print(xml_to_upload)
-                print(xml_to_upload_b)
-            elif self.merge_add == "add":
-                xml_to_upload = self.xml_add(ET.fromstring(emeta), self.xml_new)
+            xml_to_upload = self.xml_merge(ET.fromstring(emeta), self.xml_new)
             if self.dummy_flag is True:
                 print(f"Updating {e.reference} Updating Metadata")
             else:
@@ -483,7 +466,49 @@ class PreservicaMassMod():
                             print(f'Deleting Folder: {e}')
                         else:
                             self.entity.delete_folder(e)
-        
+    
+    def upload_processing(self, idx: pd.Index, upload_folder: str, doc_type: str):
+
+        title = check_nan(self.df[TITLE_FIELD].loc[idx].item())
+        description = check_nan(self.df[DESCRIPTION_FIELD].loc[idx].item())
+        security = check_nan(self.df[SECURITY_FIELD].loc[idx].item())
+        if title is None:
+            print('Error...')
+            raise SystemExit 
+        if doc_type == "SO-Create":
+            self.entity.create_folder(title=title,description=description,security_tag=security,parent=upload_folder)
+        elif doc_type == "IO-Upload":
+            if UPLOAD_FIELD in self.column_headers:
+                file_path = str(self.df[UPLOAD_FIELD].loc[idx].item())
+                if check_nan(file_path):
+                    print(f'The upload path for {idx} is set to blank, please ensure a valid path is given')
+                    time.sleep(5)
+                    raise SystemExit()
+                if os.path.isfile(file_path):
+                    try:
+                        self.entity.folder(upload_folder)
+                    except:
+                        print(f'The reference given {upload_folder} is not a valid folder on your Preservica Server')
+                        time.sleep(5)
+                        raise SystemError()
+                    if not file_path.endswith('.zip'):
+                        sip = simple_asset_package(file_path)
+                    callback = UploadProgressCallback(file_path)
+                    self.upload.upload_zip_package(sip, folder=upload_folder, callback=callback)
+                    complex_asset_package()
+                else:
+                    print(f'The upload path for {idx} is not directed to a valid file')
+                    time.sleep(5)
+                    raise SystemExit()
+            else:
+                print(f'The upload path column: {UPLOAD_FIELD} is not present in the spreadsheet; please ensure it is with a valid path to folder')
+                time.sleep(5)
+                raise SystemExit()
+        elif doc_type == "PA-Create": 
+            self.entity.add_physical_asset(title=title,description=description,security_tag=security,parent=upload_folder)
+        else:
+            raise SystemError()
+
     def main(self):
         """
         Main loop.
@@ -492,24 +517,27 @@ class PreservicaMassMod():
         self.init_generate_descriptive_metadata()
         if self.retention_flag is True:
             self.get_retentions()
-        if DOCUMENT_TYPE in self.df:
+        if DOCUMENT_TYPE in self.df or self.upload_flag is True:
             reference_list = self.df[[ENTITY_REF, DOCUMENT_TYPE]].to_dict('records')
         else:
             reference_list = self.df[ENTITY_REF].to_dict('records')
         for reference in reference_list:
             ref = reference.get(ENTITY_REF)
             print(f"Processing: {ref}")
+            idx = self.df[ENTITY_REF].index[self.df[ENTITY_REF] == ref]
             if DOCUMENT_TYPE in reference:
-                if reference.get(DOCUMENT_TYPE) == "SO":
+                doc_type = reference.get(DOCUMENT_TYPE)
+                if doc_type == "SO":
                     e = self.entity.folder(ref)
-                elif reference.get(DOCUMENT_TYPE) == "IO":
+                elif doc_type == "IO":
                     e = self.entity.asset(ref)
             else:
                 try:
                     e = self.entity.asset(ref)
                 except:
                     e = self.entity.folder(ref)
-            idx = self.df[ENTITY_REF].index[self.df[ENTITY_REF] == ref]
+            if DOCUMENT_TYPE in reference and self.upload_flag is True:
+                self.upload_processing(idx, ref, doc_type)
             if self.delete_flag is True:
                 self.delete_lookup(idx, e)
                 continue
