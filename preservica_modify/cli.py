@@ -33,7 +33,8 @@ def parse_args():
     parser.add_argument("-p", "--password", type=str)
     parser.add_argument("-s", "--server", type=str)
     parser.add_argument("--tenant", type=str)
-    mgroup.add_argument("--use-credentials", nargs='?', const=os.path.join(os.getcwd(),"credentials.properties"))
+    parser.add_argument("-opt", "--options-file", type=str, default=os.path.join(os.path.dirname(__file__),'options.properties'))
+    mgroup.add_argument("--use-credentials", nargs='?', default=os.path.join(os.getcwd(),"credentials.properties"))
     parser.add_argument("--dummy", action="store_true")
     args = parser.parse_args()
     return args
@@ -70,5 +71,6 @@ def run_cli():
                             server=args.server,
                             tenant=args.tenant,
                             dummy=args.dummy,
+                            options_file=args.options_file,
                             credentials=args.use_credentials).main()
 run_cli()
