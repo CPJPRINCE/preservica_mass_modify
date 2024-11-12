@@ -46,18 +46,30 @@ class PreservicaMassMod():
         config = configparser.ConfigParser()
         config.read(options_file,encoding='utf-8')
 
-        self.ENTITY_REF=config['options']['ENTITY_REF']
-        self.DOCUMENT_TYPE=config['options']['DOCUMENT_TYPE']
-        self.TITLE_FIELD=config['options']['TITLE_FIELD']
-        self.DESCRIPTION_FIELD=config['options']['DESCRIPTION_FIELD']
-        self.SECURITY_FIELD=config['options']['SECURITY_FIELD']
-        self.RETENTION_FIELD=config['options']['RETENTION_FIELD']
-        self.MOVETO_FIELD=config['options']['MOVETO_FIELD']
-        self.DELETE_FIELD=config['options']['DELETE_FIELD']
-        self.IDENTIFIER_FIELD=config['options']['IDENTIFIER_FIELD']
-        self.IDENTIFIER_DEFAULT=config['options']['IDENTIFIER_DEFAULT']        
-        self.PRES_UPLOAD_FIELD=config['options']['PRES_UPLOAD_FIELD']
-        self.ACCESS_UPLOAD_FIELD=config['options']['ACCESS_UPLOAD_FIELD']
+        global ENTITY_REF
+        ENTITY_REF=config['options']['ENTITY_REF']
+        global DOCUMENT_TYPE
+        DOCUMENT_TYPE=config['options']['DOCUMENT_TYPE']
+        global TITLE_FIELD
+        TITLE_FIELD=config['options']['TITLE_FIELD']
+        global DESCRIPTION_FIELD 
+        DESCRIPTION_FIELD=config['options']['DESCRIPTION_FIELD']
+        global SECURITY_FIELD
+        SECURITY_FIELD=config['options']['SECURITY_FIELD']
+        global RETENTION_FIELD
+        RETENTION_FIELD=config['options']['RETENTION_FIELD']
+        global MOVETO_FIELD
+        MOVETO_FIELD=config['options']['MOVETO_FIELD']
+        global DELETE_FIELD
+        DELETE_FIELD=config['options']['DELETE_FIELD']
+        global IDENTIFIER_FIELD
+        IDENTIFIER_FIELD=config['options']['IDENTIFIER_FIELD']
+        global IDENTIFIER_DEFAULT
+        IDENTIFIER_DEFAULT=config['options']['IDENTIFIER_DEFAULT']        
+        global PRES_UPLOAD_FIELD
+        PRES_UPLOAD_FIELD=config['options']['PRES_UPLOAD_FIELD']
+        global ACCESS_UPLOAD_FIELD
+        ACCESS_UPLOAD_FIELD=config['options']['ACCESS_UPLOAD_FIELD']
 
         if os.path.isfile(credentials):
             self.credentials_file = credentials
@@ -114,15 +126,15 @@ class PreservicaMassMod():
         self.security_flag = False
         self.retention_flag = False
         self.dest_flag = False
-        if self.TITLE_FIELD in self.column_headers:
+        if TITLE_FIELD in self.column_headers:
             self.title_flag = True
-        if self.DESCRIPTION_FIELD in self.column_headers:
+        if DESCRIPTION_FIELD in self.column_headers:
             self.description_flag = True
-        if self.SECURITY_FIELD in self.column_headers:
+        if SECURITY_FIELD in self.column_headers:
             self.security_flag = True
-        if self.RETENTION_FIELD in self.column_headers:
+        if RETENTION_FIELD in self.column_headers:
             self.retention_flag = True
-        if self.MOVETO_FIELD in self.column_headers:
+        if MOVETO_FIELD in self.column_headers:
             self.dest_flag = True
 
     def get_retentions(self):
@@ -170,21 +182,19 @@ class PreservicaMassMod():
                 ident = None
             else:
                 for header in self.column_headers:
-                    if any(s in header for s in {self.IDENTIFIER_FIELD,'Archive_Reference','Accession_Reference'}):
-                        ident = self.df[header].loc[idx].item()
-                        if f'{self.IDENTIFIER_FIELD}:' in header:
+                    if any(s in header for s in {IDENTIFIER_FIELD,'Archive_Reference','Accession_Reference'}):
+                        if f'{IDENTIFIER_FIELD}:' in header:
                             key_name = str(header).rsplit(':')[-1]
                         elif key_default is None:
                             if 'Archive_Reference' in header:
                                 key_name = key_default
                             elif 'Accession_Reference' in header:
                                 key_name = "accref"
-                            elif self.IDENTIFIER_FIELD in header:
+                            elif IDENTIFIER_FIELD in header:
                                 key_name = key_default
                         else:
                             key_name = key_default
-                        if str(ident).lower() in {"nan", "nat"} or not ident:
-                            ident = None
+                        check_nan(ident = self.df[header].loc[idx].item())
                         xip_idents = self.entity.identifiers_for_entity(e)
                         if ident is not None:
                             if any(x[0] for x in xip_idents if x[0] == key_name):
@@ -208,8 +218,6 @@ class PreservicaMassMod():
                                         self.entity.delete_identifiers(e,key_name,str(oldident))
                                 else:
                                     pass
-                    else:
-                        pass
         except Exception as e:
             print('Error looking up Identifiers')
             raise SystemError()
@@ -238,27 +246,15 @@ class PreservicaMassMod():
                     title = None
                     description = None
                     security = None
-                else:
-                        if self.title_flag:
-                            title = self.df[self.TITLE_FIELD].loc[idx].item()
-                            if str(title).lower() in {"nan","nat"}:
-                                title = None
-                        else:
-                            title = None
-                        if self.description_flag:
-                            description = self.df[self.DESCRIPTION_FIELD].loc[idx].item()
-                            if str(description).lower() in {"nan","nat"}:
-                                description = None
-                            if str(description).lower() in {"nan","nat"} and self.blank_override is True:
-                                description = ""
-                        else:
-                            description = None
-                        if self.security_flag:
-                            security = self.df[self.SECURITY_FIELD].loc[idx].item()
-                            if str(security).lower() in {"nan","nat"}:
-                                security = None
-                        else:
-                            security = None
+            else:
+                    if self.title_flag:
+                        title = check_nan(self.df[TITLE_FIELD].loc[idx].item())
+                    if self.description_flag:
+                        description = check_nan(self.df[DESCRIPTION_FIELD].loc[idx].item())
+                        if description is None and self.blank_override is True:
+                            description = ""
+                    if self.security_flag:
+                        security = check_nan(self.df[SECURITY_FIELD].loc[idx].item())
             if title:
                 if self.dummy_flag is True:
                     print(f"Updating {e.reference} Title from {e.title} to {title}")
@@ -292,9 +288,9 @@ class PreservicaMassMod():
                 rp = None
             else:
                 if self.retention_flag:
-                    rp = self.df[self.RETENTION_FIELD].loc[idx].item()
+                    rp = check_nan(self.df[RETENTION_FIELD].loc[idx].item())
                     assignments = self.retention.assignments(e)
-                    if str(rp).lower() in {"nan","nat"} and self.blank_override:
+                    if rp is None and self.blank_override is True:
                         rp = None
                         if any(assignments):
                             for ass in assignments:
@@ -302,8 +298,7 @@ class PreservicaMassMod():
                                     print(f"Updating {e.reference}, removing Retention Policy: {ass.policy_reference}")
                                 else:
                                     self.retention.remove_assignments(ass)
-                    elif str(rp).lower() in {"nan","nat"}:
-                        rp = None
+                    elif rp is None:
                         pass
                     else:
                         d = [d for d in self.policy_dict if d.get('Name') == rp]
@@ -330,7 +325,7 @@ class PreservicaMassMod():
         """
         Initiation for the generate_descriptive_metadata function. Seperated to avoid unecessary repetition.
 
-        Compares the Column headers in the spreadsheet agasint the XML's in the Metadata Directory.
+        Compares the Column headers in the spreadsheet against the XML's in the Metadata Directory.
         """
         self.xml_files = []
         for file in os.scandir(self.metadata_dir):
@@ -373,7 +368,9 @@ class PreservicaMassMod():
         Composes the data into an xml file.
         """
         if len(list_xml):
-            if not idx.empty:
+            if idx.empty:
+                pass
+            else:
                 xml_new = ET.parse(xml_file.get('xmlfile'))
                 for elem_dict in list_xml:
                     name = elem_dict.get('Name')
@@ -381,15 +378,22 @@ class PreservicaMassMod():
                     ns = elem_dict.get('Namespace')
                     try:
                         if self.metadata_flag in {'e', 'exact'}:
-                            val = self.df.loc[idx, path].values[0]
+                            val = check_nan(self.df[path].loc[idx].item())
                         elif self.metadata_flag in {'f', 'flat'}:
-                            val = self.df.loc[idx, name].values[0]
-                        if pd.isnull(val):
+                            val = check_nan(self.df[name].loc[idx].item())
+                        if pd.isnull(val) or val is None:
                             continue
                         else:
                             if pd.api.types.is_datetime64_dtype(val):
                                 val = pd.to_datetime(val)
                                 val = datetime.strftime(val, "%Y-%m-%dT%H:%M:%S.000Z")
+                        if self.metadata_flag in {'e','exact'}:
+                            n = path.replace(localname + ":", f"{{{ns}}}")
+                            elem = xml_new.find(f'./{n}')
+                        elif self.metadata_flag in {'f', 'flat'}:
+                            n = name.split(':')[-1]
+                            elem = xml_new.find(f'.//{{{ns}}}{n}')
+                        elem.text = str(val)
                     except KeyError as e:
                         print('Key Error: please ensure column header\'s are an exact match...')
                         print(f'Missing Column: {e}')
@@ -403,20 +407,7 @@ class PreservicaMassMod():
                         print(f'Error: {e}')
                         time.sleep(3)
                         break
-                    if str(val).lower() in {"nan", "nat"}:
-                        continue
-                    if self.metadata_flag in {'e','exact'}:
-                        n = path.replace(localname + ":", f"{{{ns}}}")
-                        elem = xml_new.find(f'./{n}')
-                    elif self.metadata_flag in {'f', 'flat'}:
-                        n = name.split(':')[-1]
-                        elem = xml_new.find(f'.//{{{ns}}}{n}')
-                    elem.text = str(val)    
                 self.xml_new = xml_new
-            else:
-                pass
-        else:
-            pass
             
     def xml_update(self, e: Entity, ns: str):
         """
@@ -446,10 +437,8 @@ class PreservicaMassMod():
             if idx.empty:
                 pass
             else: 
-                dest = self.df[self.MOVETO_FIELD].loc[idx].item()
-                if str(dest).lower() in {"nan","nat"}:
-                    pass
-                else:
+                dest = check_nan(self.df[MOVETO_FIELD].loc[idx].item())
+                if dest is not None:
                     if re.search("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",dest):
                         dest_folder = self.entity.folder(dest)
                         if self.dummy_flag is True:
@@ -471,7 +460,7 @@ class PreservicaMassMod():
             if idx.empty:
                 pass
             else:
-                delete_conf = self.df[self.DELETE_FIELD].loc[idx].item()
+                delete_conf = self.df[DELETE_FIELD].loc[idx].item()
                 if bool(delete_conf) is True:
                     if e.entity_type == EntityType.ASSET:
                         if self.dummy_flag is True:
@@ -485,26 +474,26 @@ class PreservicaMassMod():
                             self.entity.delete_folder(e)
     
     def upload_processing(self, idx: pd.Index, upload_folder: str, doc_type: str):
-
-        title = check_nan(self.df[self.TITLE_FIELD].loc[idx].item())
-        description = check_nan(self.df[self.DESCRIPTION_FIELD].loc[idx].item())
-        security = check_nan(self.df[self.SECURITY_FIELD].loc[idx].item())
+        
+        title = check_nan(self.df[TITLE_FIELD].loc[idx].item())
+        description = check_nan(self.df[DESCRIPTION_FIELD].loc[idx].item())
+        security = check_nan(self.df[SECURITY_FIELD].loc[idx].item())
         if title is None:
             print('Error...')
             raise SystemExit 
         if doc_type == "SO-Create":
             self.entity.create_folder(title=title,description=description,security_tag=security,parent=upload_folder)
         elif doc_type == "SO-Upload":
-            if self.PRES_UPLOAD_FIELD and self.ACCESS_UPLOAD_FIELD in self.column_headers:
-                pres_folder_path = str(self.df[self.PRES_UPLOAD_FIELD].loc[idx].item())
-                access_folder_path = str(self.df[self.ACCESS_UPLOAD_FIELD].loc[idx].item())
+            if PRES_UPLOAD_FIELD and ACCESS_UPLOAD_FIELD in self.column_headers:
+                pres_folder_path = str(self.df[PRES_UPLOAD_FIELD].loc[idx].item())
+                access_folder_path = str(self.df[ACCESS_UPLOAD_FIELD].loc[idx].item())
                 if any([check_nan(pres_folder_path), check_nan(access_folder_path)] is None):
                     print(f'Either Access or Upload path for {idx} is set to blank, please ensure a valid path is given for both')
                     time.sleep(5)
                     raise SystemExit()
                 ###Path...
-            if self.PRES_UPLOAD_FIELD in self.column_headers:
-                folder_path = str(self.df[self.PRES_UPLOAD_FIELD].loc[idx].item())
+            if PRES_UPLOAD_FIELD in self.column_headers:
+                folder_path = str(self.df[PRES_UPLOAD_FIELD].loc[idx].item())
                 if check_nan(folder_path):
                     print(f'The upload path for {idx} is set to blank, please ensure a valid path is given')
                     time.sleep(5)
@@ -525,12 +514,12 @@ class PreservicaMassMod():
                     time.sleep(5)
                     raise SystemExit()
             else:
-                print(f'The upload path column: {self.PRES_UPLOAD_FIELD} is not present in the spreadsheet; please ensure it is with a valid path to folder')
+                print(f'The upload path column: {PRES_UPLOAD_FIELD} is not present in the spreadsheet; please ensure it is with a valid path to folder')
                 time.sleep(5)
                 raise SystemExit()
         elif doc_type == "IO-SimpleUpload":
-            if self.PRES_UPLOAD_FIELD in self.column_headers:
-                file_path = str(self.df[self.PRES_UPLOAD_FIELD].loc[idx].item())
+            if PRES_UPLOAD_FIELD in self.column_headers:
+                file_path = str(self.df[PRES_UPLOAD_FIELD].loc[idx].item())
                 if check_nan(file_path):
                     print(f'The upload path for {idx} is set to blank, please ensure a valid path is given')
                     time.sleep(5)
@@ -551,10 +540,9 @@ class PreservicaMassMod():
                     time.sleep(5)
                     raise SystemExit()
             else:
-                print(f'The upload path column: {self.PRES_UPLOAD_FIELD} is not present in the spreadsheet; please ensure it is with a valid path to folder')
+                print(f'The upload path column: {PRES_UPLOAD_FIELD} is not present in the spreadsheet; please ensure it is with a valid path to folder')
                 time.sleep(5)
                 raise SystemExit()
-            
         elif doc_type == "PA-Create": 
             self.entity.add_physical_asset(title=title,description=description,security_tag=security,parent=upload_folder)
         else:
@@ -568,16 +556,16 @@ class PreservicaMassMod():
         self.init_generate_descriptive_metadata()
         if self.retention_flag is True:
             self.get_retentions()
-        if self.DOCUMENT_TYPE in self.df and self.upload_flag is True:
-            data_dict = self.df[[self.ENTITY_REF, self.DOCUMENT_TYPE]].to_dict('index')
+        if DOCUMENT_TYPE in self.df and self.upload_flag is True:
+            data_dict = self.df[[ENTITY_REF, DOCUMENT_TYPE]].to_dict('index')
         else:
-            data_dict = self.df[self.ENTITY_REF].to_dict('index')
+            data_dict = self.df[ENTITY_REF].to_dict('index')
         for idx in data_dict:
             reference_dict = data_dict.get(idx)
-            ref = reference_dict.get(self.ENTITY_REF)
+            ref = reference_dict.get(ENTITY_REF)
             print(f"Processing: {ref}")
-            if self.DOCUMENT_TYPE in reference_dict:
-                doc_type = reference_dict.get(self.DOCUMENT_TYPE)
+            if DOCUMENT_TYPE in reference_dict:
+                doc_type = reference_dict.get(DOCUMENT_TYPE)
                 if doc_type == "SO":
                     e = self.entity.folder(ref)
                 elif doc_type == "IO":
@@ -591,7 +579,7 @@ class PreservicaMassMod():
                 self.delete_lookup(idx, e)
                 continue
             title,description,security = self.xip_update(idx, e)
-            self.ident_update(idx, e, self.IDENTIFIER_DEFAULT)
+            self.ident_update(idx, e, IDENTIFIER_DEFAULT)
             for xml in self.xml_files:
                 self.generate_descriptive_metadata(idx, xml)
                 ns = xml.get('localns')
@@ -600,7 +588,7 @@ class PreservicaMassMod():
             if e.entity_type == EntityType.ASSET:
                 self.retention_update(idx,e)
             self.dest_update(idx, e)
-            if self.DOCUMENT_TYPE in reference_dict and self.upload_flag is True:
+            if DOCUMENT_TYPE in reference_dict and self.upload_flag is True:
                 self.upload_processing(idx, ref, doc_type)
                 continue
             """
@@ -619,7 +607,7 @@ class PreservicaMassMod():
                                     ns = xml.get('localns')
                                     self.xml_update(e,ns=ns)
                             if any(x in ["include-identifiers","include-all"] for x in self.descendants_flag):
-                                self.ident_update(idx, de, self.IDENTIFIER_DEFAULT)
+                                self.ident_update(idx, de, IDENTIFIER_DEFAULT)
                             # xml_update reutilises the metadata generated above - it will merge the data from the spreadsheet, with the data from the descendant's Entity...
                             if any(x in ["include-retention","include-all"] for x in self.descendants_flag):
                                 self.retention_update(idx, de)
