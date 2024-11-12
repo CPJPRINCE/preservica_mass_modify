@@ -130,7 +130,7 @@ class PreservicaMassMod():
         Retrieves retention policies from Preservica and parses them into a dict
         """
         self.policies = self.retention.policies()
-        self.policy_dict = [{"Name": f.name, "Reference": f.reference} for f in self.policies]
+        self.policy_dict = [{"Name": f.name, "Reference": f.reference} for f in self.policies.get_results()]
 
     def xml_merge(self, xml_a: ET.Element, xml_b: ET.Element, x_parent = None):
         """
@@ -183,26 +183,14 @@ class PreservicaMassMod():
                                 key_name = key_default
                         else:
                             key_name = key_default
-                    else:
-                        ident = None
-                    if self.blank_override is True and str(ident).lower() in {"nan","nat"}:
-                        ident = False
-                    elif str(ident).lower() in {"nan", "nat"} or not ident:
-                        ident = None
-                    if ident is not None:
+                        if str(ident).lower() in {"nan", "nat"} or not ident:
+                            ident = None
                         xip_idents = self.entity.identifiers_for_entity(e)
-                        if self.blank_override is True and ident is False:
+                        if ident is not None:
                             if any(x[0] for x in xip_idents if x[0] == key_name):
                                 oldident = [x[1] for x in xip_idents if x[0] == key_name][0]
                                 if self.dummy_flag is True:
-                                    print(f'Updating {e.reference} Deleting Identifer {key_name, oldident}')
-                                else:
-                                    self.entity.update_identifiers(e,key_name,str(ident))
-                        else:
-                            if any(x[0] for x in xip_idents if x[0] == key_name):
-                                oldident = [x[1] for x in xip_idents if x[0] == key_name][0]
-                                if self.dummy_flag is True:
-                                    print(f'Updating {e.reference} Updating identifer {key_name, oldident} to: {key_name, ident}')
+                                    print(f'Updating {e.reference} Updating identifier {key_name, oldident} to: {key_name, ident}')
                                 else:
                                     self.entity.update_identifiers(e,key_name,str(ident))
                             else: 
@@ -210,7 +198,18 @@ class PreservicaMassMod():
                                     print(f'Updating {e.reference} Adding identifier: {key_name, ident}')
                                 else:
                                     self.entity.add_identifier(e,key_name,str(ident))
-                
+                        else:
+                            if self.blank_override is True:
+                                if any(x[0] for x in xip_idents if x[0] == key_name):
+                                    oldident = [x[1] for x in xip_idents if x[0] == key_name][0]
+                                    if self.dummy_flag is True:
+                                        print(f'Updating {e.reference} Deleting identifier {key_name, oldident}')
+                                    else:
+                                        self.entity.delete_identifiers(e,key_name,str(oldident))
+                                else:
+                                    pass
+                    else:
+                        pass
         except Exception as e:
             print('Error looking up Identifiers')
             raise SystemError()
@@ -300,7 +299,7 @@ class PreservicaMassMod():
                         if any(assignments):
                             for ass in assignments:
                                 if self.dummy_flag is True:
-                                    print(f"Updating {e.reference}, removing Retention Policy: {ass.reference, ass.name}")
+                                    print(f"Updating {e.reference}, removing Retention Policy: {ass.policy_reference}")
                                 else:
                                     self.retention.remove_assignments(ass)
                     elif str(rp).lower() in {"nan","nat"}:
@@ -308,10 +307,9 @@ class PreservicaMassMod():
                         pass
                     else:
                         d = [d for d in self.policy_dict if d.get('Name') == rp]
-                        if len(d) != 1:
-                            print('Error Retention Policy was not found')
-                            ### Parse Path
-                        else:
+                        if len(d) > 1:
+                            print('Multiple Retention Policies found, not doing anything...')
+                        elif len(d) == 1:
                             if any(assignments):
                                 for ass in assignments:
                                     if self.dummy_flag is True:
@@ -322,6 +320,8 @@ class PreservicaMassMod():
                                 print(f"Updating {e.reference} Adding Retention Policy: {d[0].get('Reference'), d[0].get('Name')}")
                             else:
                                 self.retention.add_assignments(e,self.retention.policy(d[0].get('Reference')))
+                        elif len(d) == 0:
+                            print('No Policy Found...')
         except Exception as e:
             print('Error looking up Retention')
             raise SystemError()
@@ -389,7 +389,7 @@ class PreservicaMassMod():
                         else:
                             if pd.api.types.is_datetime64_dtype(val):
                                 val = pd.to_datetime(val)
-                                val = datetime.strftime(val, "%Y-%m-%dT%H-%M-%S.00Z")
+                                val = datetime.strftime(val, "%Y-%m-%dT%H:%M:%S.000Z")
                     except KeyError as e:
                         print('Key Error: please ensure column header\'s are an exact match...')
                         print(f'Missing Column: {e}')
@@ -447,15 +447,18 @@ class PreservicaMassMod():
                 pass
             else: 
                 dest = self.df[self.MOVETO_FIELD].loc[idx].item()
-                if re.search("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",dest):
-                    dest_folder = self.entity.folder(dest)
-                    if self.dummy_flag is True:
-                        print(f'Moving Entity: {e}, to: {dest_folder.reference, dest_folder.title}')
-                    else:
-                        self.entity.move_async(entity=e, dest_folder=dest_folder)
+                if str(dest).lower() in {"nan","nat"}:
+                    pass
                 else:
-                    print(f'Error: Reference in "Move To" is incorrect: {dest}')
-                    raise SystemExit()
+                    if re.search("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",dest):
+                        dest_folder = self.entity.folder(dest)
+                        if self.dummy_flag is True:
+                            print(f'Moving Entity: {e}, to: {dest_folder.reference, dest_folder.title}')
+                        else:
+                            self.entity.move_async(entity=e, dest_folder=dest_folder)
+                    else:
+                        print(f'Error: Reference in "Move To" is incorrect: {dest}')
+                        raise SystemExit()
 
     def delete_lookup(self, idx: pd.Index, e:Entity):
         """
@@ -587,8 +590,6 @@ class PreservicaMassMod():
             if self.delete_flag is True:
                 self.delete_lookup(idx, e)
                 continue
-            if e.entity_type == EntityType.ASSET:
-                self.retention_update(idx,e)
             title,description,security = self.xip_update(idx, e)
             self.ident_update(idx, e, self.IDENTIFIER_DEFAULT)
             for xml in self.xml_files:
@@ -596,6 +597,8 @@ class PreservicaMassMod():
                 ns = xml.get('localns')
                 self.xnames = [x.get('XName') for x in xml.get('data')]
                 self.xml_update(e,ns=ns)
+            if e.entity_type == EntityType.ASSET:
+                self.retention_update(idx,e)
             self.dest_update(idx, e)
             if self.DOCUMENT_TYPE in reference_dict and self.upload_flag is True:
                 self.upload_processing(idx, ref, doc_type)
@@ -627,11 +630,13 @@ class PreservicaMassMod():
                                     description = None
                                 if not any(x in ["include-all","include-security"] for x in self.descendants_flag):
                                     security = None
-                                #To note idx is not being utilised in the function...
+                                #To note idx is not being utilised in the function for descendantsm, as title override; overrides it...
                                 self.xip_update(idx,de,title_override=title,description_override=description,security_override=security)
                         elif "include-folders" in self.descendants_flag and de.entity_type == EntityType.FOLDER:
                             if not any(x in ["include-xml","include-retention","include-description","include-security","include-title","include-identifiers"] for x in self.descendants_flag):
                                 print('No data to process. Ensure you select 1 option of data to edit')
+                                time.sleep(5)
+                                raise SystemExit()
                             if any(x in ["include-xml","include-all"] for x in self.descendants_flag):
                                 for xml in self.xml_files:
                                     ns = xml.get('localns')
