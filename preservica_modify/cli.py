@@ -73,4 +73,6 @@ def run_cli():
                             dummy=args.dummy,
                             options_file=args.options_file,
                             credentials=args.use_credentials).main()
-run_cli()
+
+if __name__ == "__main__":
+    run_cli()
