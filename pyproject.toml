@@ -20,7 +20,7 @@ dependencies=["pypreservica","pandas","openpyxl","lxml"]
 Homepage = "https://github.com/CPJPRINCE/presvica_mass_modify"
 Issues = "https://github.com/CPJPRINCE/presvica_mass_modify/issues"
 [project.scripts]
-preservica_modify = "presvica_mass_modify.cli:run_cli"
+preservica_modify = "preservica_modify.cli:run_cli"
 
 [tool.setuptools.packages.find]
 where = ['.']
