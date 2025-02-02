@@ -74,8 +74,9 @@ class PreservicaMassMod:
         
         print(credentials)
 
-        if os.path.isfile(credentials):
-            self.credentials_file = credentials
+        if credentials is not None:
+            if os.path.isfile(credentials):
+                self.credentials_file = credentials
         else:
             self.credentials_file = None
         self.username = username
@@ -277,11 +278,11 @@ class PreservicaMassMod:
                 title = check_nan(self.df[TITLE_FIELD].loc[idx])
                 print(title)
             if self.description_flag:
-                description = check_nan(self.df[DESCRIPTION_FIELD].loc[idx].item())
+                description = check_nan(self.df[DESCRIPTION_FIELD].loc[idx])
                 if description is None and self.blank_override is True:
                     description = ""
             if self.security_flag:
-                security = check_nan(self.df[SECURITY_FIELD].loc[idx].item())
+                security = check_nan(self.df[SECURITY_FIELD].loc[idx])
             return title,description,security
         except Exception as e:
             print('Error Looking up XIP Metadata')
@@ -520,7 +521,7 @@ class PreservicaMassMod:
                         else:
                             self.entity.delete_folder(e)
     
-    def upload_processing(self, idx: pd.Index, upload_folder: str, doc_type: str):
+    def upload_mode(self, idx: pd.Index, upload_folder: str, doc_type: str):
         """
         Testing do not use!
         """
@@ -602,8 +603,9 @@ class PreservicaMassMod:
                             raise SystemError()
                         file_list = [pth.path for pth in os.scandir(folder_path) if os.path.isfile(pth)]
                         sip = complex_asset_package(file_list,parent_folder=upload_folder)
-                        callback = UploadProgressCallback(folder_path)
-                        self.upload.upload_zip_package(sip, folder=upload_folder, callback=callback)
+                        #callback = UploadProgressCallback(folder_path)
+                        #self.upload.upload_zip_package(sip, folder=upload_folder, callback=callback)
+                        print(sip)
                         return upload_folder
                     else:
                         print(f'File marked as {doc_type}. Ignoring...')
@@ -699,7 +701,8 @@ class PreservicaMassMod:
             else:
                 print('Ignoring...')
                 pass
-        except:
+        except Exception as e:
+            print(e)
             raise SystemError()
 
     def main(self):
@@ -721,6 +724,7 @@ class PreservicaMassMod:
         else:
             data_dict = self.df[ENTITY_REF].to_dict('index')
         for idx in data_dict:
+            print(idx)
             reference_dict = data_dict.get(idx)
             ref = check_nan(reference_dict.get(ENTITY_REF))
             print(f"Processing: {ref}")
@@ -728,10 +732,10 @@ class PreservicaMassMod:
                 doc_type = reference_dict.get(DOCUMENT_TYPE)
                 #Ref is the upload folder reference.
                 if ref is None or ref == "Use Parent":
-                    self.upload_processing(idx, last_ref, doc_type)
+                    self.upload_mode(idx, last_ref, doc_type)
                     time.sleep(1)               
                 else:
-                    last_ref = self.upload_processing(idx, ref, doc_type)
+                    last_ref = self.upload_mode(idx, ref, doc_type)
                 continue            
             elif DOCUMENT_TYPE in reference_dict:
                 doc_type = reference_dict.get(DOCUMENT_TYPE)

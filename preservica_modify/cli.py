@@ -16,8 +16,8 @@ import os, time
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-i","--input", required = True)
-    parser.add_argument("-mdir","--metadata_dir", required = True)
-    parser.add_argument("-x","--xml_method", default = "flat", choices=["flat","exact"])
+    parser.add_argument("-mdir","--metadata_dir", required = False)
+    parser.add_argument("-xml","--xml_method", default = None, nargs="?", const="flat", choices=["flat","exact"])
     parser.add_argument("-clr","--blank-override", default = False, action="store_true")
     parser.add_argument("-del", "--delete", action="store_true")
     parser.add_argument("-up", "--upload-mode", action="store_true")
@@ -46,10 +46,11 @@ def run_cli():
         print("Invlaid file selected for input, closing program...")
         time.sleep(5)
         raise SystemExit()
-    if not os.path.isdir(os.path.abspath(args.metadata_dir)):
-        print("Invlaid folder selected for metadata directory, closing program...")
-        time.sleep(5)
-        raise SystemExit()
+    if args.metadata_dir is not None:
+        if not os.path.isdir(os.path.abspath(args.metadata_dir)):
+            print("Invlaid folder selected for metadata directory, closing program...")
+            time.sleep(5)
+            raise SystemExit()
     if args.descendants:
         if not any(x in ["include-assets","include-folders"] for x in args.descendants):
             print('Descendants must include either "include-assets" or "include-folders"')
