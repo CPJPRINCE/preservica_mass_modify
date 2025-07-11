@@ -35,6 +35,7 @@ class PreservicaMassMod:
                  credentials: str = os.path.join(os.getcwd(),"credentials.properties"),
                  delete: bool = False,
                  options_file: str = os.path.join(os.path.dirname(__file__),'options.properties')):
+        
         self.metadata_dir = metadata_dir
         self.metadata_flag = xml_method
         self.dummy_flag = dummy
@@ -72,11 +73,11 @@ class PreservicaMassMod:
         global ACCESS_UPLOAD_FIELD
         ACCESS_UPLOAD_FIELD=config['options']['ACCESS_UPLOAD_FIELD']
         
-        print(credentials)
-
         if credentials is not None:
             if os.path.isfile(credentials):
                 self.credentials_file = credentials
+            else: 
+                self.credentials_file = None
         else:
             self.credentials_file = None
         self.username = username
@@ -269,21 +270,21 @@ class PreservicaMassMod:
             title = None
             description = None
             security = None
-            # if idx.empty:
-            #     title = None
-            #     description = None
-            #     security = None
-            # else:
-            if self.title_flag:
-                title = check_nan(self.df[TITLE_FIELD].loc[idx])
-                print(title)
-            if self.description_flag:
-                description = check_nan(self.df[DESCRIPTION_FIELD].loc[idx])
-                if description is None and self.blank_override is True:
-                    description = ""
-            if self.security_flag:
-                security = check_nan(self.df[SECURITY_FIELD].loc[idx])
-            return title,description,security
+            if idx.empty:
+                title = None
+                description = None
+                security = None
+            else:
+                if self.title_flag:
+                    title = check_nan(self.df[TITLE_FIELD].loc[idx].item())
+                    print(title)
+                if self.description_flag:
+                    description = check_nan(self.df[DESCRIPTION_FIELD].loc[idx].item)
+                    if description is None and self.blank_override is True:
+                        description = ""
+                if self.security_flag:
+                    security = check_nan(self.df[SECURITY_FIELD].loc[idx])
+                return title,description,security
         except Exception as e:
             print('Error Looking up XIP Metadata')
             raise SystemError()
@@ -304,8 +305,8 @@ class PreservicaMassMod:
                 if self.dummy_flag is True:
                     print(f"Updating {e.reference} Security Tag from {e.security_tag} to {security}")
                 else:
-                    e.security_tag = security
-            if any([title,description,security]):
+                    self.entity.security_tag_async(e,security)
+            if any([title,description]):
                 self.entity.save(e)
         except Exception as e:
             print('Error updating XIP Metadata')
@@ -484,7 +485,7 @@ class PreservicaMassMod:
         if self.dest_flag is True:
             if idx.empty:
                 pass
-            else: 
+            else:
                 dest = check_nan(self.df[MOVETO_FIELD].loc[idx].item())
                 if dest is not None:
                     if re.search("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",dest):
@@ -508,18 +509,24 @@ class PreservicaMassMod:
             if idx.empty:
                 pass
             else:
+                
                 delete_conf = self.df[DELETE_FIELD].loc[idx].item()
-                if bool(delete_conf) is True:
-                    if e.entity_type == EntityType.ASSET:
-                        if self.dummy_flag is True:
-                            print(f'Deleting Asset: {e}')
-                        else:
-                            self.entity.delete_asset(e)
-                    elif e.entity_type == EntityType.FOLDER:
-                        if self.dummy_flag is True:
-                            print(f'Deleting Folder: {e}')
-                        else:
-                            self.entity.delete_folder(e)
+                try:
+                    if bool(check_nan(delete_conf)) is True:
+                        if e.entity_type == EntityType.ASSET:
+                            if self.dummy_flag is True:
+                                print(f'Deleting Asset: {e.reference}')
+                            else:
+                                print(f'Deleting Asset: {e.reference}')
+                                self.entity.delete_asset(self.entity.asset(e.reference),"Deleted by Preservica Mass Modify","Deleted by Preservica Mass Modify",self.credentials_file)
+                        elif e.entity_type == EntityType.FOLDER:
+                            if self.dummy_flag is True:
+                                print(f'Deleting Folder: {e.reference}')
+                            else:
+                                print(f'Deleting Folder: {e.reference}')
+                                self.entity.delete_folder(self.entity.folder(e.reference),"Deleted by Preservica Mass Modify","Deleted by Preservica Mass Modify",self.credentials_file)
+                except Exception as error:
+                    print(f'Failed to Delete, Error: {error}')
     
     def upload_mode(self, idx: pd.Index, upload_folder: str, doc_type: str):
         """
@@ -739,15 +746,27 @@ class PreservicaMassMod:
                 continue            
             elif DOCUMENT_TYPE in reference_dict:
                 doc_type = reference_dict.get(DOCUMENT_TYPE)
-                if doc_type == "SO":
-                    e = self.entity.folder(ref)
-                elif doc_type == "IO":
-                    e = self.entity.asset(ref)
-            else:
                 try:
-                    e = self.entity.asset(ref)
-                except:
-                    e = self.entity.folder(ref)
+                    if doc_type == "SO":
+                        e = self.entity.folder(ref)
+                    elif doc_type == "IO":
+                        e = self.entity.asset(ref)
+                except Exception as error:
+                    print(f'Error: {error}')
+                    print(f'Entity with reference {ref} does not exist. Possibly deleted?')
+                    continue
+            else:
+                try: 
+                    #This is a lazy solution to the issue of not being able to determine if the entity is a folder or asset.
+                    #It will try to get the entity as an asset, if it fails it will try to get it as a folder.
+                    try:
+                        e = self.entity.asset(ref)
+                    except:
+                        e = self.entity.folder(ref)
+                except Exception as error:
+                    print(f'Error: {error}')
+                    print(f'Entity with reference {ref} does not exist. Possibly deleted?')
+                    continue
             if self.delete_flag is True:
                 self.delete_lookup(idx, e)
                 continue
@@ -763,7 +782,7 @@ class PreservicaMassMod:
                 self.retention_update(e,self.retention_lookup(idx))
             self.dest_update(idx, e)
             """
-            Descdenants handling
+            Descendants handling
             """
             if self.descendants_flag:
                 if e.entity_type == EntityType.FOLDER:
@@ -776,7 +795,7 @@ class PreservicaMassMod:
                             if any(x in ["include-xml","include-all"] for x in self.descendants_flag):
                                 for xml in self.xml_files:
                                     ns = xml.get('localns')
-                                    self.xml_update(e,ns=ns)
+                                    self.xml_update(de,ns=ns)
                             if any(x in ["include-identifiers","include-all"] for x in self.descendants_flag):
                                 self.ident_update(de, self.ident_lookup(idx, IDENTIFIER_DEFAULT))
                             if any(x in ["include-retention","include-all"] for x in self.descendants_flag):
@@ -797,7 +816,7 @@ class PreservicaMassMod:
                             if any(x in ["include-xml","include-all"] for x in self.descendants_flag):
                                 for xml in self.xml_files:
                                     ns = xml.get('localns')
-                                    self.xml_update(e,ns=ns)
+                                    self.xml_update(de,ns=ns)
                             if any(x in ["include-identifiers","include-all"] for x in self.descendants_flag):
                                 self.ident_update(de, self.ident_lookup(idx,IDENTIFIER_DEFAULT))
                             if any(x in ["include-title","include-description","include-security"] for x in self.descendants_flag):

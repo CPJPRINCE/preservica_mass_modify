@@ -28,7 +28,7 @@ def parse_args():
                                                                        "include-security",
                                                                        "include-retention",
                                                                        "include-xml",
-                                                                       "include-identifier"])
+                                                                       "include-identifiers"])
     mgroup = parser.add_mutually_exclusive_group(required=True)
     mgroup.add_argument("-u", "--username", type=str)
     parser.add_argument("-p", "--password", type=str)
@@ -71,6 +71,7 @@ def run_cli():
                             username=args.username,
                             password=args.password,
                             server=args.server,
+                            delete=args.delete,
                             tenant=args.tenant,
                             dummy=args.dummy,
                             upload_mode=args.upload_mode,
