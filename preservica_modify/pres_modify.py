@@ -184,8 +184,7 @@ class PreservicaMassMod:
                 self.xml_merge(a_child,b_child,x_parent)
         return ET.tostring(xml_a,pretty_print=True)
     
-
-    def ident_lookup(self, idx: pd.Index, key_default: str = None) -> dict:
+    def ident_lookup(self, idx: int, key_default: str = None) -> dict:
         """
         Uses the pandas index to retreieve data from the "Identifer","Archive_Reference", columns. Sets identifers in Entity.
         "Archive_Reference" & "Accession_Reference" are hard-set.
@@ -253,7 +252,7 @@ class PreservicaMassMod:
             print('Error updating Identifiers')
             raise SystemError()
 
-    def xip_lookup(self, idx: pd.Index):
+    def xip_lookup(self, idx: int):
         """
         Uses the pandas index to retreieve data from the "Title, Description and Security" columns. Sets data in Entity.
 
@@ -270,21 +269,21 @@ class PreservicaMassMod:
             title = None
             description = None
             security = None
-            if idx.empty:
-                title = None
-                description = None
-                security = None
-            else:
-                if self.title_flag:
-                    title = check_nan(self.df[TITLE_FIELD].loc[idx].item())
-                    print(title)
-                if self.description_flag:
-                    description = check_nan(self.df[DESCRIPTION_FIELD].loc[idx].item)
-                    if description is None and self.blank_override is True:
-                        description = ""
-                if self.security_flag:
-                    security = check_nan(self.df[SECURITY_FIELD].loc[idx])
-                return title,description,security
+            # if idx.empty:
+            #     title = None
+            #     description = None
+            #     security = None
+            # else:
+            if self.title_flag:
+                title = check_nan(self.df[TITLE_FIELD].loc[idx].item())
+                print(title)
+            if self.description_flag:
+                description = check_nan(self.df[DESCRIPTION_FIELD].loc[idx].item)
+                if description is None and self.blank_override is True:
+                    description = ""
+            if self.security_flag:
+                security = check_nan(self.df[SECURITY_FIELD].loc[idx])
+            return title,description,security
         except Exception as e:
             print('Error Looking up XIP Metadata')
             raise SystemError()
@@ -312,7 +311,7 @@ class PreservicaMassMod:
             print('Error updating XIP Metadata')
             raise SystemError()
 
-    def retention_lookup(self, idx: pd.Index):
+    def retention_lookup(self, idx: int):
         """
         Uses the pandas index to retreieve data from the "Retention Policy" column
 
@@ -397,7 +396,7 @@ class PreservicaMassMod:
             if len(list_xml) > 0:
                 self.xml_files.append({'data': list_xml, 'localname': root_element_ln, 'localns': root_element_ns, 'xmlfile': path})
  
-    def generate_descriptive_metadata(self, idx: pd.Index, xml_file: dict):
+    def generate_descriptive_metadata(self, idx: int, xml_file: dict):
         """
         Generates the xml file based on the returned list of xml_files from the init_generate_descriptive_metadata function.
 
@@ -407,47 +406,47 @@ class PreservicaMassMod:
         list_xml = xml_file.get('data')
         localname = xml_file.get('localname')
         if len(list_xml):
-            if idx.empty:
-                pass
-            else:
-                xml_new = ET.parse(xml_file.get('xmlfile'))
-                for elem_dict in list_xml:
-                    name = elem_dict.get('Name')
-                    path = elem_dict.get('Path')
-                    ns = elem_dict.get('Namespace')
-                    try:
-                        if self.metadata_flag in {'e', 'exact'}:
-                            val = check_nan(self.df[path].loc[idx].item())
-                        elif self.metadata_flag in {'f', 'flat'}:
-                            val = check_nan(self.df[name].loc[idx].item())
-                        if pd.isnull(val) or val is None:
-                            continue
-                        else:
-                            if pd.api.types.is_datetime64_dtype(val):
-                                val = pd.to_datetime(val)
-                                val = datetime.strftime(val, "%Y-%m-%dT%H:%M:%S.000Z")
-                        if self.metadata_flag in {'e','exact'}:
-                            n = path.replace(localname + ":", f"{{{ns}}}")
-                            elem = xml_new.find(f'./{n}')
-                        elif self.metadata_flag in {'f', 'flat'}:
-                            n = name.split(':')[-1]
-                            elem = xml_new.find(f'.//{{{ns}}}{n}')
-                        elem.text = str(val)
-                    except KeyError as e:
-                        print('Key Error: please ensure column header\'s are an exact match...')
-                        print(f'Missing Column: {e}')
-                        print('Alternatively use flat mode...')
-                        time.sleep(3)
-                        raise SystemError()
-                    except IndexError as e:
-                        print("""Index Error; it is likely you have removed or added a file/folder to the directory \
-                            after generating the spreadsheet. An opex will still be generated but with no xml metadata. \
-                            To ensure metadata match up please regenerate the spreadsheet...""")
-                        print(f'Error: {e}')
-                        time.sleep(3)
-                        break
-                self.xml_new = xml_new
-                return xml_new
+            # if idx.empty:
+            #     pass
+            # else:
+            xml_new = ET.parse(xml_file.get('xmlfile'))
+            for elem_dict in list_xml:
+                name = elem_dict.get('Name')
+                path = elem_dict.get('Path')
+                ns = elem_dict.get('Namespace')
+                try:
+                    if self.metadata_flag in {'e', 'exact'}:
+                        val = check_nan(self.df[path].loc[idx].item())
+                    elif self.metadata_flag in {'f', 'flat'}:
+                        val = check_nan(self.df[name].loc[idx].item())
+                    if pd.isnull(val) or val is None:
+                        continue
+                    else:
+                        if pd.api.types.is_datetime64_dtype(val):
+                            val = pd.to_datetime(val)
+                            val = datetime.strftime(val, "%Y-%m-%dT%H:%M:%S.000Z")
+                    if self.metadata_flag in {'e','exact'}:
+                        n = path.replace(localname + ":", f"{{{ns}}}")
+                        elem = xml_new.find(f'./{n}')
+                    elif self.metadata_flag in {'f', 'flat'}:
+                        n = name.split(':')[-1]
+                        elem = xml_new.find(f'.//{{{ns}}}{n}')
+                    elem.text = str(val)
+                except KeyError as e:
+                    print('Key Error: please ensure column header\'s are an exact match...')
+                    print(f'Missing Column: {e}')
+                    print('Alternatively use flat mode...')
+                    time.sleep(3)
+                    raise SystemError()
+                except IndexError as e:
+                    print("""Index Error; it is likely you have removed or added a file/folder to the directory \
+                        after generating the spreadsheet. An opex will still be generated but with no xml metadata. \
+                        To ensure metadata match up please regenerate the spreadsheet...""")
+                    print(f'Error: {e}')
+                    time.sleep(3)
+                    break
+            self.xml_new = xml_new
+            return xml_new
             
     def xml_update(self, e: Entity, ns: str):
         """
@@ -475,7 +474,7 @@ class PreservicaMassMod:
             else:
                 self.entity.update_metadata(e, ns, xml_to_upload.decode('utf-8'))
 
-    def dest_update(self, idx: pd.Index, e: Entity):
+    def dest_update(self, idx: int, e: Entity):
         """
         Uses the pandas index to retreieve data from the "Move To" column. Intitaites a move. 
 
@@ -483,22 +482,22 @@ class PreservicaMassMod:
         :param Enitty: Entity to act upon
         """
         if self.dest_flag is True:
-            if idx.empty:
-                pass
-            else:
-                dest = check_nan(self.df[MOVETO_FIELD].loc[idx].item())
-                if dest is not None:
-                    if re.search("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",dest):
-                        dest_folder = self.entity.folder(dest)
-                        if self.dummy_flag is True:
-                            print(f'Moving Entity: {e}, to: {dest_folder.reference, dest_folder.title}')
-                        else:
-                            self.entity.move_async(entity=e, dest_folder=dest_folder)
+            # if idx.empty:
+            #     pass
+            # else:
+            dest = check_nan(self.df[MOVETO_FIELD].loc[idx].item())
+            if dest is not None:
+                if re.search("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",dest):
+                    dest_folder = self.entity.folder(dest)
+                    if self.dummy_flag is True:
+                        print(f'Moving Entity: {e}, to: {dest_folder.reference, dest_folder.title}')
                     else:
-                        print(f'Error: Reference in "Move To" is incorrect: {dest}')
-                        raise SystemExit()
+                        self.entity.move_async(entity=e, dest_folder=dest_folder)
+                else:
+                    print(f'Error: Reference in "Move To" is incorrect: {dest}')
+                    raise SystemExit()
 
-    def delete_lookup(self, idx: pd.Index, e:Entity):
+    def delete_lookup(self, idx: int, e:Entity):
         """
         Uses the pandas index to retrieve data from the "Delete" column. If True intitaites a Delete.
         Requires use of a .credentials file.
@@ -506,29 +505,28 @@ class PreservicaMassMod:
         Delete Flag must also be set.
         """
         if self.delete_flag is True:
-            if idx.empty:
-                pass
-            else:
-                
-                delete_conf = self.df[DELETE_FIELD].loc[idx].item()
-                try:
-                    if bool(check_nan(delete_conf)) is True:
-                        if e.entity_type == EntityType.ASSET:
-                            if self.dummy_flag is True:
-                                print(f'Deleting Asset: {e.reference}')
-                            else:
-                                print(f'Deleting Asset: {e.reference}')
-                                self.entity.delete_asset(self.entity.asset(e.reference),"Deleted by Preservica Mass Modify","Deleted by Preservica Mass Modify",self.credentials_file)
-                        elif e.entity_type == EntityType.FOLDER:
-                            if self.dummy_flag is True:
-                                print(f'Deleting Folder: {e.reference}')
-                            else:
-                                print(f'Deleting Folder: {e.reference}')
-                                self.entity.delete_folder(self.entity.folder(e.reference),"Deleted by Preservica Mass Modify","Deleted by Preservica Mass Modify",self.credentials_file)
-                except Exception as error:
-                    print(f'Failed to Delete, Error: {error}')
+            # if idx.empty:
+            #     pass
+            # else:
+            delete_conf = self.df[DELETE_FIELD].loc[idx].item()
+            try:
+                if bool(check_nan(delete_conf)) is True:
+                    if e.entity_type == EntityType.ASSET:
+                        if self.dummy_flag is True:
+                            print(f'Deleting Asset: {e.reference}')
+                        else:
+                            print(f'Deleting Asset: {e.reference}')
+                            self.entity.delete_asset(self.entity.asset(e.reference),"Deleted by Preservica Mass Modify","Deleted by Preservica Mass Modify",self.credentials_file)
+                    elif e.entity_type == EntityType.FOLDER:
+                        if self.dummy_flag is True:
+                            print(f'Deleting Folder: {e.reference}')
+                        else:
+                            print(f'Deleting Folder: {e.reference}')
+                            self.entity.delete_folder(self.entity.folder(e.reference),"Deleted by Preservica Mass Modify","Deleted by Preservica Mass Modify",self.credentials_file)
+            except Exception as error:
+                print(f'Failed to Delete, Error: {error}')
     
-    def upload_mode(self, idx: pd.Index, upload_folder: str, doc_type: str):
+    def upload_mode(self, idx: int, upload_folder: str, doc_type: str):
         """
         Testing do not use!
         """
@@ -729,9 +727,8 @@ class PreservicaMassMod:
                 time.sleep(5)
                 raise SystemExit()
         else:
-            data_dict = self.df[ENTITY_REF].to_dict('index')
+            data_dict = self.df.to_dict('index')
         for idx in data_dict:
-            print(idx)
             reference_dict = data_dict.get(idx)
             ref = check_nan(reference_dict.get(ENTITY_REF))
             print(f"Processing: {ref}")
@@ -771,7 +768,7 @@ class PreservicaMassMod:
                 self.delete_lookup(idx, e)
                 continue
             title, description, security = self.xip_lookup(idx)
-            self.xip_update(idx,title,description,security)
+            self.xip_update(e,title,description,security)
             self.ident_update(e, self.ident_lookup(idx, IDENTIFIER_DEFAULT))
             for xml in self.xml_files:
                 self.generate_descriptive_metadata(idx, xml)
