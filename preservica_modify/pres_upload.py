@@ -1,3 +1,8 @@
+"""
+Upload Mode still needs work and testing...
+
+"""
+
 import time, os, sys
 from preservica_modify.common import check_nan
 from pyPreservica.uploadAPI import UploadProgressCallback, complex_asset_package, simple_asset_package
@@ -8,7 +13,7 @@ from preservica_modify.pres_modify import PreservicaMassMod
 
 logger = logging.getLogger(__name__)
 
-class PreservicaUploadMode(PreservicaMassMod):
+class PreservicaMassUpload(PreservicaMassMod):
     def __init__(self, config_path: str, spreadsheet_path: str, timeout: int = 2):
         super().__init__(config_path, spreadsheet_path)
         self.TIMEOUT = timeout
@@ -32,7 +37,7 @@ class PreservicaUploadMode(PreservicaMassMod):
                                         Asset_Metadata=xml_data)
         return new_pax
     
-    def so_create(self, idx: int, upload_folder: str, title: str, description: Optional[str] = None, security: Optional[str] = None, ident_dict: Optional[dict] = None, xml_data: Optional[dict] = None, retention_policy: Optional[str]=None):
+    def so_create(self, upload_folder: str, title: str, description: Optional[str] = None, security: Optional[str] = None, ident_dict: Optional[dict] = None, xml_data: Optional[dict] = None, retention_policy: Optional[str]=None):
         if description is None:
             description = ""
         if security is None:
@@ -67,13 +72,16 @@ class PreservicaUploadMode(PreservicaMassMod):
         return new_pa
 
     def so_upload(self, idx: int, upload_folder: str, title: str, description: Optional[str] = None, security: Optional[str] = None, ident_dict: Optional[dict] = None, xml_data: Optional[dict] = None, retention_policy: Optional[str]=None):
-        
+
         if self.FILE_PATH in self.column_headers:
             folder_path = check_nan(self.df[self.FILE_PATH].loc[idx])
             if folder_path is None:
                 logger.exception(f'The upload path for {idx} is set to blank, please ensure a valid path is given')
                 raise Exception(f'The upload path for {idx} is set to blank, please ensure a valid path is given')
-            if os.path.isdir(folder_path):
+            if os.path.isfile(folder_path):
+                logger.warning(f'Folder marked as SO-Upload. Ignoring file...')
+                pass
+            elif os.path.isdir(folder_path):
                 try:
                     self.entity.folder(upload_folder)
                 except Exception as e:
@@ -95,7 +103,7 @@ class PreservicaUploadMode(PreservicaMassMod):
                         self.retention_update(sip, retention_policy)
                 return upload_folder
             else:
-                logger.warning(f'Folder marked as SO-Upload. Ignoring file...')
+                logger.warning(f'Path marked as SO-Upload is not a valid file or folder path. Ignoring entry...')
                 pass
         else:
             logger.exception(f'The upload path column: {self.FILE_PATH} is not present in the spreadsheet; please ensure it is with a valid path to folder')
@@ -249,7 +257,7 @@ class PreservicaUploadMode(PreservicaMassMod):
             raise SystemExit()
     """
 
-    def upload_mode(self, idx: Hashable, upload_folder: str, doc_type: str):
+    def main(self, idx: Hashable, upload_folder: str, doc_type: str):
         """
         Testing do not use!
         """
@@ -261,13 +269,14 @@ class PreservicaUploadMode(PreservicaMassMod):
             ident_dict = self.ident_lookup(idx, self.IDENTIFIER_DEFAULT)
             retention_policy = self.retention_lookup(idx)
             xml_dict = {}
-            for xml in self.xml_files:
-                new_xml = self.generate_descriptive_metadata(idx, xml)
-                ns = xml.get('localns')
-                if new_xml is not None:
-                    xml_dict.update({ns: etree.tostring(new_xml).decode('utf-8')})
-                else:
-                    pass
+            xmls = self.generate_descriptive_metadata(idx, self.xml_files)
+            if xmls is not None:
+                for x in xmls:
+                    ns = x.keys()[0]
+                    assert isinstance(ns, str)
+                    new_xml = x.get(ns)
+                    assert isinstance(new_xml, etree._ElementTree)
+                    xml_dict.update({ns: new_xml})                
             
             if doc_type == "PAX-Create":
                 new_pax = self.pax_create(idx, title, description, security, ident_dict, xml_dict)
@@ -296,7 +305,6 @@ class PreservicaUploadMode(PreservicaMassMod):
                                     
             elif doc_type == "IO-Upload":
                 return self.io_upload(idx,upload_folder,title,description,security,ident_dict,xml_dict,retention_policy)
-
             else:
                 logger.warning(f'Upload mode for {doc_type} is not currently supported, skipping...')
                 return None
