@@ -44,6 +44,8 @@ class PreservicaMassMod:
                  dummy: bool = False,
                  username: Optional[str] = None,
                  password: Optional[str] = None,
+                 manager_username: Optional[str] = None,
+                 manager_password: Optional[str] = None,
                  server: Optional[str] = None,
                  tenant: Optional[str] = None,
                  credentials: str = os.path.join(os.getcwd(),"credentials.properties"),
@@ -52,6 +54,7 @@ class PreservicaMassMod:
                  keyring_service: str = "preservica_modify",
                  save_password_to_keyring: bool = False,
                  disable_continue: bool = False,
+                 case_insensitive: bool = False,
                  options_file: str = os.path.join(os.path.dirname(__file__),'options', 'options.properties')):
         
         self.metadata_dir = metadata_dir
@@ -62,7 +65,7 @@ class PreservicaMassMod:
         self.descendants_flag = descendants
         
         self.upload_flag = upload_mode
-        
+
         if credentials is not None:
             if os.path.isfile(credentials):
                 self.credentials_file = credentials
@@ -77,18 +80,22 @@ class PreservicaMassMod:
         self.password = password
         self.server = server
         self.tenant = tenant
+        self.manager_username = manager_username
+        self.manager_password = manager_password
 
         self.use_keyring = use_keyring
         self.keyring_service = keyring_service
         self.save_password_to_keyring = save_password_to_keyring
-
+        
         self.disable_continue = disable_continue
+
+        self.case_insensitive = case_insensitive
 
         if options_file is None:
             options_file = os.path.join(os.path.dirname(__file__),'options','options.properties')
-        self.parse_config(options_file=os.path.abspath(options_file))
+        self.parse_config(options_file=os.path.abspath(options_file), case_insensitive=case_insensitive)
 
-    def parse_config(self, options_file: str) -> None:
+    def parse_config(self, options_file: str, case_insensitive: bool = False) -> None:
         config = configparser.ConfigParser()
         read_config = config.read(options_file, encoding='utf-8')
         if not read_config:
@@ -115,8 +122,11 @@ class PreservicaMassMod:
         self.PAX_PATH=section.get('PAX_PATH', 'PAX Path')
 
         self.ARCREF_FIELD=section.get('ARCREF_FIELD', 'Archive_Reference')
-        self.ACCREF_FIELD=section.get('ACCREFF_FIELD', 'Accession_Reference')
-        self.ACCREF_CODE=section.get('ACCREFF_CODE', 'accref')
+        self.ACCREF_FIELD=section.get('ACCREF_FIELD', 'Accession_Reference')
+        self.ACCREF_CODE=section.get('ACCREF_CODE', 'accref')
+        
+        if case_insensitive:
+            section = {k:v.lower() for k,v in section.items()}
 
         logger.debug(f'Configuration loaded: {section}')
 
@@ -125,20 +135,20 @@ class PreservicaMassMod:
         server = self.server or "default-server"
         return f"{self.keyring_service}:{server}:{tenant}"
 
-    def _get_password_from_keyring(self) -> Optional[str]:
+    def _get_password_from_keyring(self, username) -> Optional[str]:
         if not self.use_keyring:
             return None
         if keyring is None:
             raise RuntimeError("keyring package is not installed. Install with: pip install keyring")
-        if not self.username or not self.server:
+        if not username or not self.server:
             return None
         try:
-            return keyring.get_password(self._keyring_entry_name(), str(self.username))
+            return keyring.get_password(self._keyring_entry_name(), str(username))
         except KeyringError as e:
             logger.warning(f"Unable to read password from keyring: {e}")
             return None
         
-    def _set_password_in_keyring(self, password: str) -> None:
+    def _set_password_in_keyring(self, username: str, password: str) -> None:
         if not self.save_password_to_keyring:
             return
         if keyring is None:
@@ -146,7 +156,7 @@ class PreservicaMassMod:
         if not self.username or not self.server:
             return
         try:
-            keyring.set_password(self._keyring_entry_name(), str(self.username), password)
+            keyring.set_password(self._keyring_entry_name(), str(username), password)
             logger.info("Password saved to keyring.")
         except KeyringError as e:
             logger.warning(f"Unable to save password to keyring: {e}")
@@ -156,6 +166,8 @@ class PreservicaMassMod:
         from .cli import fmthelper
 
         input_fmt = fmthelper(os.path.splitext(self.input_file)[-1].replace('.',''))
+        
+        logger.info(f'Initializing dataframe from input file: {self.input_file} with detected format: {input_fmt}. May take time to load.')
 
         if input_fmt.endswith("xlsx"):
             self.df: pd.DataFrame = pd.read_excel(self.input_file)
@@ -172,6 +184,9 @@ class PreservicaMassMod:
             raise Exception("Unsupported file type for input. Please use .xlsx, .csv, .json or .xml")
        
         self.column_headers = list(self.df.columns.values)
+        if self.case_insensitive:
+            self.column_headers = [str(header).lower() for header in self.column_headers]
+            self.df.columns = self.column_headers
         date_headers = [header for header in self.column_headers if "date" in str(header).lower()]
         self.df[date_headers] = self.df[date_headers].apply(lambda x: pd.to_datetime(x,format='mixed'))
 
@@ -193,22 +208,32 @@ class PreservicaMassMod:
                 self.admin = AdminAPI(credentials_path=self.credentials_file)
                 logger.info(f'Successfully logged into Preservica Server {self.server}, as user: {self.username}')
                 return
+                        
+            def _check_password(username: str, password: Optional[str]):
+
+                if None in (username, self.server):
+                    logger.exception('A Username or Server has not been provided... Please try again...')
+                    raise Exception('A Username or Server has not been provided... Please try again...')
+
+                if password is None and self.save_password_to_keyring is False:
+                    password = self._get_password_from_keyring(username)
+                
+                if password is None:
+                    password = getpass(prompt=f"Please enter your password for Preservica for {username}: ")
+                    if self.save_password_to_keyring is True:
+                        self._set_password_in_keyring(username, password)
+                
+                if password is not None:
+                    return password
+                else:
+                    logger.exception('Password not provided and could not be retrieved from keyring. Please try again...')
+                    raise Exception('Password not provided and could not be retrieved from keyring. Please try again...')
             
-            if None in (self.username, self.server):
-                logger.exception('A Username or Server has not been provided... Please try again...')
-                raise Exception('A Username or Server has not been provided... Please try again...')
-            
-            if self.password is None:
-                self.password = self._get_password_from_keyring()
-            
-            if self.password is None:
-                self.password = getpass(prompt="Please enter your password for Preservica: ")
-                if self.save_password_to_keyring:
-                    self._set_password_in_keyring(self.password)
-            
-            if self.password is None:
-                logger.exception('Password not provided and could not be retrieved from keyring. Please try again...')
-                raise Exception('Password not provided and could not be retrieved from keyring. Please try again...')
+            if self.username:
+                self.password = _check_password(self.username, self.password)
+
+            if self.manager_username:
+                self.manager_password = _check_password(self.manager_username, self.manager_password)
 
             self.entity = EntityAPI(username=str(self.username), password=str(self.password),server=str(self.server), tenant=str(self.tenant) if self.tenant else None)
             self.retention = RetentionAPI(username=str(self.username), password=str(self.password),server=str(self.server), tenant=str(self.tenant) if self.tenant else None)
@@ -357,7 +382,7 @@ class PreservicaMassMod:
         if token is not None:
             with open(token_file, 'w') as f:
                 f.write(str(token))
-                f.close()
+            print(os.path.exists(token_file))
             logger.info(f'Continue token saved to {token_file}')
 
     def _load_continue_token(self, token_file: str) -> Optional[int]:
@@ -365,7 +390,6 @@ class PreservicaMassMod:
         if os.path.isfile(token_file):
             with open(token_file, 'r') as f:
                 token = int(f.read().strip())
-                f.close()
             logger.info(f'Continue token loaded from {token_file}, processing from index: {token}')
             assert isinstance(token, int)
             return token
@@ -377,7 +401,7 @@ class PreservicaMassMod:
         token_file = token_file + "_continue.txt"
         if os.path.isfile(token_file):
             os.remove(token_file)
-            logger.debug(f'Continue token file {token_file} removed.')
+            logger.info(f'Continue token file {token_file} removed.')
 
     def _set_input_flags(self) -> None:
         """
@@ -407,6 +431,7 @@ class PreservicaMassMod:
         """
         self.policies = self.retention.policies()
         self.policy_dict = [{"Name": p.name, "Reference": p.reference} for p in self.policies.get_results()]
+        logger.info(f'Retention Policies retrieved')
         logger.debug(f'Retention Policies obtained: {self.policy_dict}')
         return self.policy_dict
 
@@ -607,11 +632,7 @@ class PreservicaMassMod:
         Delete Flag must also be set.
         """
         try:
-            if self.delete_flag is True:
-                delete_conf = self._cell(idx, self.DELETE_FIELD)
-                return bool(check_nan(delete_conf))
-            else:
-                return False
+            return check_bool(self._cell(idx, self.DELETE_FIELD))    
         except Exception as e:
             logger.exception(f'Failed to Lookup Delete, Error: {e}')
             raise Exception(f'Failed to Lookup Delete, Error: {e}')
@@ -655,7 +676,7 @@ class PreservicaMassMod:
                         raise Exception(f'Error comparing XML elements to column headers for file {file.name}: {e}') from e
                 if len(list_xml) > 0:
                     self.xml_files.append({'data': list_xml, 'localname': root_element_ln, 'localns': root_element_ns, 'xmlfile': path})
-                    logger.debug(f'XML file: {file.name} with matching columns found, added to xml_files for metadata generation.')
+                    logger.info(f'Matching columns found in spreadsheet for XML file: {file.name}, added to metadata generation list.')
                 else:
                     logger.warning(f'No matching columns found in spreadsheet for XML file: {file.name}, skipping this file for metadata generation.')
             return self.xml_files
@@ -843,14 +864,14 @@ class PreservicaMassMod:
             # Check if metadata exists for the entity
             if emeta is None:
                 xml_to_upload = etree.tostring(xml_new)
-                logger.info(f"Updating {ent.reference} Adding Metadata")
+                logger.info(f"Updating {ent.reference} Adding Metadata for: {ns}")
                 logger.debug(f'New XML Metadata: {xml_to_upload}')
                 if self.dummy_flag is False:
                     self.entity.add_metadata(ent, ns, xml_to_upload.decode('utf-8'))
             # Metadata exists, merge and update
             else:
                 xml_to_upload = etree.tostring(self.xml_merge(etree.fromstring(emeta), xml_new))
-                logger.info(f"Updating {ent.reference} Updating Metadata")
+                logger.info(f"Updating {ent.reference} Updating Metadata for: {ns}")
                 logger.debug(f'Updated XML Metadata: {xml_to_upload}')
                 if self.dummy_flag is False:
                     self.entity.update_metadata(ent, ns, xml_to_upload.decode('utf-8'))
@@ -888,15 +909,19 @@ class PreservicaMassMod:
         try:
             if self.delete_flag is True:
                 delete_conf = self.delete_lookup(idx)
-                if delete_conf is True and self.credentials_file is not None:
+                if delete_conf is True and (self.manager_username or self.credentials_file):
                     if ent.entity_type == EntityType.ASSET:
                         logger.info(f'Deleting Asset: {ent.reference}')
                         if self.dummy_flag is False:
-                            self.entity.delete_asset(self.entity.asset(ent.reference),"Deleted by Preservica Mass Modify","Deleted by Preservica Mass Modify", self.credentials_file)
+                            self.entity.delete_asset(self.entity.asset(ent.reference),"Deleted by Preservica Mass Modify","Deleted by Preservica Mass Modify", self.credentials_file, self.manager_username, self.manager_password)
+                        return True
                     elif ent.entity_type == EntityType.FOLDER:
                         logger.info(f'Deleting Folder: {ent.reference}')
                         if self.dummy_flag is False:
-                            self.entity.delete_folder(self.entity.folder(ent.reference),"Deleted by Preservica Mass Modify","Deleted by Preservica Mass Modify", self.credentials_file)
+                            self.entity.delete_folder(self.entity.folder(ent.reference),"Deleted by Preservica Mass Modify","Deleted by Preservica Mass Modify", self.credentials_file,  self.manager_username, self.manager_password)
+                        return True
+            else:
+                return False
         except Exception as e:
             logger.exception(f'Failed to Delete, Error: {e}')
             raise Exception(f'Failed to Delete, Error: {e}')
@@ -950,7 +975,8 @@ class PreservicaMassMod:
                     elif "include-folders" in self.descendants_flag and descendant_ent.entity_type == EntityType.FOLDER:
                         self._process_descent(idx, descendant_ent, EntityType.FOLDER)
 
-    def main(self):
+
+    def old_main(self):
         """
         Main loop.
         """
@@ -964,13 +990,38 @@ class PreservicaMassMod:
                 self.get_retentions()
 
             # Expand out the formatting of columns to allow Entity to be determined locally.
-            if self.DOCUMENT_TYPE in self.column_headers or self.upload_flag is True:
+            if self.DOCUMENT_TYPE in self.column_headers and not self.upload_flag:
                 try:
                     data_dict = self.df[[self.ENTITY_REF, self.DOCUMENT_TYPE]].to_dict(orient='index')
-                    last_ref = None                
                 except KeyError as e:
                     logger.exception(f'Key Error: {e} Please ensure that the "Document Type" column is in your spreadsheet.')
                     raise KeyError(f'Key Error: {e} Please ensure that the "Document Type" column is in your spreadsheet.')
+            elif self.upload_flag:
+                try:
+                    from preservica_modify.pres_upload import PreservicaMassUpload
+                except:
+                    logger.exception('Upload mode enabled but PreservicaMassUpload class not found. Please ensure you have the pres_upload module in your project and it contains the PreservicaMassUpload class.')
+                    raise Exception('Upload mode enabled but PreservicaMassUpload class not found. Please ensure you have the pres_upload module in your project and it contains the PreservicaMassUpload class.')
+                try:
+                    if self.UPLOAD_TYPE not in self.column_headers and self.DOCUMENT_TYPE not in self.column_headers:
+                        logger.warning('Upload mode enabled but no Document Type or Upload Type column found. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
+                        raise Exception('Upload mode enabled but no Document Type or Upload Type column found. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
+                    elif self.UPLOAD_TYPE in self.column_headers and self.DOCUMENT_TYPE in self.column_headers:
+                        logger.warning(f'Both Document Type and Upload Type columns found, defaulting to Upload Type column for reference. Using {self.UPLOAD_TYPE} as basis.')
+                        data_dict = self.df[[self.ENTITY_REF, self.UPLOAD_TYPE]].to_dict(orient='index')
+                    elif self.UPLOAD_TYPE in self.column_headers:
+                        logger.debug(f'Upload Type column found, using {self.UPLOAD_TYPE} as basis for upload mode.')
+                        data_dict = self.df[[self.ENTITY_REF, self.UPLOAD_TYPE]].to_dict(orient='index')
+                    elif self.DOCUMENT_TYPE in self.column_headers:
+                        logger.debug(f'Document Type column found, using {self.DOCUMENT_TYPE} as basis for upload mode.')
+                        data_dict = self.df[[self.ENTITY_REF, self.DOCUMENT_TYPE]].to_dict(orient='index')
+                    else:
+                        logger.error('No Document Type or Upload Type column found using Upload Mode, Exiting. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
+                        raise Exception('No Document Type or Upload Type column found using Upload Mode, Exiting. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')  
+                    last_ref = None
+                except KeyError as e:
+                    logger.exception(f'Key Error: {e} Please ensure that the "Document Type" and "Upload Type" columns are in your spreadsheet when using upload mode.')
+                    raise KeyError(f'Key Error: {e} Please ensure that the "Document Type" and "Upload Type" columns are in your spreadsheet when using upload mode.') from e
             else:
                 data_dict = self.df.to_dict(orient='index')
 
@@ -1067,3 +1118,191 @@ class PreservicaMassMod:
         except Exception as e:
             logger.exception(f'Error in main loop: {e}')
             raise Exception(f'Error in main loop: {e}') from e
+        
+    def main(self):
+        """
+        Main loop.
+        """
+        try:
+            self.init_df()
+            self._set_input_flags()
+            self.login_preservica()
+            if self.metadata_flag is not None:
+                self.init_generate_descriptive_metadata()
+            if self.retention_flag is True:
+                self.get_retentions()
+            if self.upload_flag is True:
+                self._process_upload_mode()
+                self._remove_continue_token(self.input_file)
+                return
+            if self.DOCUMENT_TYPE in self.column_headers:
+                data_dict = self.df[[self.ENTITY_REF, self.DOCUMENT_TYPE]].to_dict(orient='index')
+            else:
+                data_dict = self.df[[self.ENTITY_REF]].to_dict(orient='index')
+            self._process_rows(data_dict)
+            self._remove_continue_token(self.input_file)
+            logger.info('Process completed.')
+        except KeyError as e:
+            logger.exception(f'Key Error: {e}.')
+            raise KeyError(f'Key Error: {e}.')
+        except Exception as e:
+            logger.exception(f'Error in main loop: {e}')
+            raise Exception(f'Error in main loop: {e}') from e
+
+    def _process_upload_mode(self) -> None:
+        try:
+            from preservica_modify.pres_upload import PreservicaMassUpload
+        except:
+            logger.exception('Upload mode enabled but PreservicaMassUpload class not found. Please ensure you have the pres_upload module in your project and it contains the PreservicaMassUpload class.')
+            raise Exception('Upload mode enabled but PreservicaMassUpload class not found. Please ensure you have the pres_upload module in your project and it contains the PreservicaMassUpload class.')
+        try:
+            if self.UPLOAD_TYPE not in self.column_headers and self.DOCUMENT_TYPE not in self.column_headers:
+                logger.warning('Upload mode enabled but no Document Type or Upload Type column found. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
+                raise Exception('Upload mode enabled but no Document Type or Upload Type column found. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
+            elif self.UPLOAD_TYPE in self.column_headers and self.DOCUMENT_TYPE in self.column_headers:
+                logger.warning(f'Both Document Type and Upload Type columns found, defaulting to Upload Type column for reference. Using {self.UPLOAD_TYPE} as basis.')
+                data_dict = self.df[[self.ENTITY_REF, self.UPLOAD_TYPE]].to_dict(orient='index')
+            elif self.UPLOAD_TYPE in self.column_headers:
+                logger.debug(f'Upload Type column found, using {self.UPLOAD_TYPE} as basis for upload mode.')
+                data_dict = self.df[[self.ENTITY_REF, self.UPLOAD_TYPE]].to_dict(orient='index')
+            elif self.DOCUMENT_TYPE in self.column_headers:
+                logger.debug(f'Document Type column found, using {self.DOCUMENT_TYPE} as basis for upload mode.')
+                data_dict = self.df[[self.ENTITY_REF, self.DOCUMENT_TYPE]].to_dict(orient='index')
+            else:
+                logger.error('No Document Type or Upload Type column found using Upload Mode, Exiting. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
+                raise Exception('No Document Type or Upload Type column found using Upload Mode, Exiting. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')  
+        except KeyError as e:
+            logger.exception(f'Key Error: {e} Please ensure that the "Document Type" and "Upload Type" columns are in your spreadsheet when using upload mode.')
+            raise KeyError(f'Key Error: {e} Please ensure that the "Document Type" and "Upload Type" columns are in your spreadsheet when using upload mode.') from e
+
+        try:
+            last_ref = None
+            keys, start_pos = self._process_continue_token(data_dict)
+
+            for idx in keys[start_pos:]:
+                reference_dict = data_dict.get(idx)
+                if reference_dict is not None:
+                    ref = check_nan(reference_dict.get(self.ENTITY_REF))
+                else:
+                    logger.exception(f'No data found for index: {idx}')
+                    raise Exception(f'No data found for index: {idx}')
+                if self.UPLOAD_TYPE in self.column_headers:
+                    upload_type = reference_dict.get(self.UPLOAD_TYPE)
+                elif self.DOCUMENT_TYPE in self.column_headers:
+                    upload_type = reference_dict.get(self.DOCUMENT_TYPE)
+                #Ref is the upload folder reference.
+                if ref is None or ref == "Use Parent" and upload_type is not None:
+                    if last_ref is None:
+                        logger.warning('No previous reference found. Please provide a reference in atleast the first row.')
+                        raise Exception('No previous reference found. Please provide a reference in atleast the first row.')
+                    PreservicaMassUpload('placeholder', spreadsheet_path=self.input_file).main(idx, str(last_ref), str(upload_type))
+                else:
+                    last_ref = PreservicaMassUpload('placeholder',spreadsheet_path=self.input_file).main(idx, ref, str(upload_type))
+        except KeyboardInterrupt:
+            logger.warning('Process interrupted by user during upload mode, exiting...')
+            if self.disable_continue is False:
+                self._save_continue_token(self.input_file, idx)
+            raise KeyboardInterrupt('Process interrupted by user, exiting...') from None
+        except Exception as e:
+            logger.exception(f'Error in upload mode: {e}')
+            raise Exception(f'Error in upload mode: {e}') from e
+
+
+    def _process_continue_token(self, data_dict: dict) -> tuple[list[int], int]:
+        if self.disable_continue is True:
+            start_idx = 0
+        else:
+            start_idx = self._load_continue_token(self.input_file)
+            try:
+                assert isinstance(start_idx, int)
+            except AssertionError as e:
+                logger.exception(f'Invalid continue token: {start_idx}, must be an integer index. Error: {e}')
+                raise Exception(f'Invalid continue token: {start_idx}, must be an integer index.') from e
+            keys = list(data_dict.keys())
+            if start_idx in keys:
+                start_pos = keys.index(start_idx)
+            else:
+                start_pos = max(0, int(start_idx))
+        keys = list(data_dict.keys())
+        if start_idx in keys:
+            start_pos = keys.index(start_idx)
+        else:
+            start_pos = max(0, int(start_idx))
+        return keys, start_pos    
+
+    def _process_rows(self, data_dict: dict) -> None:
+        try:
+            keys, start_pos = self._process_continue_token(data_dict)
+            for idx in keys[start_pos:]:
+                reference_dict = data_dict.get(idx)
+                if reference_dict is not None:
+                    ref = check_nan(reference_dict.get(self.ENTITY_REF))
+                    if ref is None:
+                        logger.warning(f'No reference found for index: {idx}, skipping to next row.')
+                        continue
+                    doc_type = check_nan(reference_dict.get(self.DOCUMENT_TYPE))
+                    if doc_type is None:
+                        logger.warning(f'No document type found for index: {idx}, attempting to retrieve entity without document type.')
+                else:
+                    logger.exception(f'No data found for index: {idx}')
+                    raise Exception(f'No data found for index: {idx}')
+                logger.info(f"Processing Row Index: {idx}, Reference: {ref}")
+                ent = self._process_fetch_ent(ref, doc_type)
+                if ent is not None:
+                    self._process_row_ent(ent, idx, reference_dict)
+                else:
+                    logger.warning(f'Entity not found for reference {ref}, skipping to next row.')
+                    continue
+        except KeyboardInterrupt:
+            logger.warning('Process interrupted by user, exiting...')
+            if self.disable_continue is False:
+                self._save_continue_token(self.input_file, idx)
+            raise KeyboardInterrupt('Process interrupted by user, exiting...') from None
+        except Exception as e:
+            logger.exception(f'Error processing rows: {e}')
+            raise Exception(f'Error processing rows: {e}') from e
+
+     # Setup for Local Definition of Entity?
+    def _process_fetch_ent(self, ref: str, doc_type: Optional[str]) -> Optional[Entity]:
+        try:
+            if doc_type is not None:
+                if doc_type == "SO":
+                    ent = self.entity.folder(ref)
+                elif doc_type == "IO":
+                    ent = self.entity.asset(ref)
+                return ent
+            else:
+                #This is a lazy lookup solution to the issue of not being able to determine if the entity is a folder or asset.
+                try:
+                    ent = self.entity.asset(ref)
+                except:
+                    ent = self.entity.folder(ref)
+                return ent
+        except Exception as e:
+            logger.warning(f'Error retrieving entity with reference {ref}: {e}, skipping to next row.')
+            return None
+
+    # Instead of using lookups, can reference_dict be used directly?
+    def _process_row_ent(self, ent: Entity, idx: int, reference_dict: dict = None) -> None:
+        if self.delete_flag is True:
+            delete_check = self.delete_update(idx, ent)
+            if delete_check is True:
+                return
+        if any([self.title_flag, self.description_flag, self.security_flag]) is True:
+            title, description, security = self.xip_lookup(idx)
+            self.xip_update(ent,title,description,security)
+        self.ident_update(ent, self.ident_lookup(idx, self.IDENTIFIER_DEFAULT))
+        if self.metadata_flag is not None:
+            xmls = self.generate_descriptive_metadata(idx, self.xml_files)
+            if xmls is not None:                                
+                for x in xmls:
+                    self.xnames = x.get('xnames')
+                    ns = list(x.keys())[0]
+                    assert isinstance(ns, str)
+                    xml_new = x.get(ns)
+                    assert isinstance(xml_new, etree._ElementTree)
+                    self.xml_update(ent, ns, xml_new)
+        if ent.entity_type == EntityType.ASSET and self.retention_flag is True:
+            self.retention_update(ent, self.retention_lookup(idx))
+        self.move_update(idx, ent)
+        self._process_descendants(idx, ent)
