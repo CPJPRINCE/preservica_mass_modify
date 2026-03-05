@@ -54,7 +54,7 @@ class PreservicaMassMod:
                  keyring_service: str = "preservica_modify",
                  save_password_to_keyring: bool = False,
                  disable_continue: bool = False,
-                 case_insensitive: bool = False,
+                 column_sensistivity: bool = False,
                  options_file: str = os.path.join(os.path.dirname(__file__),'options', 'options.properties')):
         
         self.metadata_dir = metadata_dir
@@ -89,19 +89,22 @@ class PreservicaMassMod:
         
         self.disable_continue = disable_continue
 
-        self.case_insensitive = case_insensitive
+        self.column_sensistivity = column_sensistivity
 
         if options_file is None:
             options_file = os.path.join(os.path.dirname(__file__),'options','options.properties')
         self.parse_config(options_file=os.path.abspath(options_file), case_insensitive=case_insensitive)
 
-    def parse_config(self, options_file: str, case_insensitive: bool = False) -> None:
+    def parse_config(self, options_file: str, column_sensistivity: bool = False) -> None:
         config = configparser.ConfigParser()
         read_config = config.read(options_file, encoding='utf-8')
         if not read_config:
             logger.warning(f"Options file not found or not readable: {options_file}. Using defaults.")
 
         section = config['options'] if 'options' in config else {}
+
+        if column_sensistivity:
+            section = {k:v.lower() for k,v in section.items()}
 
         self.ENTITY_REF=section.get('ENTITY_REF', 'Entity Ref')
         self.DOCUMENT_TYPE=section.get('DOCUMENT_TYPE', 'Document type')
@@ -125,9 +128,6 @@ class PreservicaMassMod:
         self.ACCREF_FIELD=section.get('ACCREF_FIELD', 'Accession_Reference')
         self.ACCREF_CODE=section.get('ACCREF_CODE', 'accref')
         
-        if case_insensitive:
-            section = {k:v.lower() for k,v in section.items()}
-
         logger.debug(f'Configuration loaded: {section}')
 
     def _keyring_entry_name(self) -> str:
@@ -184,7 +184,7 @@ class PreservicaMassMod:
             raise Exception("Unsupported file type for input. Please use .xlsx, .csv, .json or .xml")
        
         self.column_headers = list(self.df.columns.values)
-        if self.case_insensitive:
+        if self.column_sensistivity is True:
             self.column_headers = [str(header).lower() for header in self.column_headers]
             self.df.columns = self.column_headers
         date_headers = [header for header in self.column_headers if "date" in str(header).lower()]
