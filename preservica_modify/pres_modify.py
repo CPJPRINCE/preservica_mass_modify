@@ -195,10 +195,6 @@ class PreservicaMassMod:
         Logs into Preservica. Either through manually logging in.
         """
         try:
-            # if any(v is None for v in (self.username,self.password,self.server)):
-            #     logger.exception('A Username, Password or Server has not been provided... Please try again...')
-            #     raise Exception('A Username, Password or Server has not been provided... Please try again...')
-            
             if self.credentials_file:
                 logger.info('Using credentials file.')
                 self.entity = EntityAPI(credentials_path=self.credentials_file)
