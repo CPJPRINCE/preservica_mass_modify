@@ -52,8 +52,11 @@ def create_parser() -> argparse.ArgumentParser:
                         "Enabling this option will also modify descendant entities based on the criteria specified." \
                         "For example, if 'include-assets' is specified, all asset descendants of listed folders will also be modified according to the input spreadsheet. " \
                         "Also affects metadata updates - if 'include-xml' is specified, XML metadata updates will also be applied to descendant entities. ")
-    parser.add_argument("--dummy", "--dummy-run", action="store_true",
+    program_group.add_argument("--dummy", "--dummy-run", action="store_true",
                         help="Run the program in dummy mode (no actual changes will be made to the system, but all processing will occur as normal and a report will be generated at the end)")
+    program_group.add_argument("--column-sensitivity", action="store_true",
+                        help="Enable column sensitivity. By default, column names in the input spreadsheet are case sensitive, meaning that 'Title' and 'title' won't match." \
+                        "Enabling this option will make column names case insensitive, so 'Title', 'title', and 'TITLE' would all be treated as the same column.")
 
     metadata_group = parser.add_argument_group("Metadata Options", "Options for handling XML metadata updates. " \
     "If you are not making any metadata updates, you can ignore this section. ")
@@ -87,6 +90,8 @@ def create_parser() -> argparse.ArgumentParser:
                         "The credentials.properties file should contain the following properties: username, password, server, tenant.")
     credvsuser.add_argument("-u", "--username", type=str,
                         help="Username for authentication with Preservica. Will prompt for password if --use-keyring is not enabled.")
+    login_group.add_argument("--manager-username", type=str,
+                        help="Manager Username for authentication with Preservica. Will prompt for password if --use-keyring is not enabled.")    
     login_group.add_argument("-s", "--server", type=server_helper,
                         help="URL of the Preservica server to connect to.")
     login_group.add_argument("--tenant", type=str,
@@ -176,9 +181,9 @@ def run_cli(args: argparse.Namespace) -> None:
     if not args.use_credentials and not args.username:
         logger.exception("No authentication method provided. Please provide either a credentials file or a username for authentication, closing program...")
         raise
-    if not args.use_credentials and args.delete:
-        logger.exception("Delete Option requires a Credentials file for authentication. Please provide a credentials file or remove the delete option, closing program...")
-        raise Exception("Delete Option requires a Credentials file for authentication. Please provide a credentials file or remove the delete option.")
+    if args.delete and not (args.manager_username or args.use_credentials):
+        logger.exception("Delete Option requires a Manager Username or Credentials file for authentication. Please provide a credentials file or remove the delete option, closing program...")
+        raise Exception("Delete Option requires a Manager Username or Credentials file for authentication. Please provide a credentials file or remove the delete option.")
     if args.test_login:
         try:
             PreservicaMassMod(input_file=args.input,
@@ -217,6 +222,7 @@ def run_cli(args: argparse.Namespace) -> None:
                       metadata=args.metadata,
                       descendants=args.descendants,
                       username=args.username,
+                      manager_username=args.manager_username,
                       server=args.server,
                       delete=args.delete,
                       tenant=args.tenant,
@@ -226,7 +232,8 @@ def run_cli(args: argparse.Namespace) -> None:
                       credentials=args.use_credentials,
                       use_keyring=args.use_keyring,
                       keyring_service=args.keyring_service,
-                      save_password_to_keyring=args.save_password
+                      save_password_to_keyring=args.save_password,
+                      column_sensistivity=args.column_sensitivity
                       ).main()
   
 def server_helper(server_str: str) -> str:
