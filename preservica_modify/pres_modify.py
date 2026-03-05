@@ -971,180 +971,6 @@ class PreservicaMassMod:
                     elif "include-folders" in self.descendants_flag and descendant_ent.entity_type == EntityType.FOLDER:
                         self._process_descent(idx, descendant_ent, EntityType.FOLDER)
 
-
-    def old_main(self):
-        """
-        Main loop.
-        """
-        try:
-            self.init_df()
-            self._set_input_flags()
-            self.login_preservica()
-            if self.metadata_flag is not None:
-                self.init_generate_descriptive_metadata()
-            if self.retention_flag is True:
-                self.get_retentions()
-
-            # Expand out the formatting of columns to allow Entity to be determined locally.
-            if self.DOCUMENT_TYPE in self.column_headers and not self.upload_flag:
-                try:
-                    data_dict = self.df[[self.ENTITY_REF, self.DOCUMENT_TYPE]].to_dict(orient='index')
-                except KeyError as e:
-                    logger.exception(f'Key Error: {e} Please ensure that the "Document Type" column is in your spreadsheet.')
-                    raise KeyError(f'Key Error: {e} Please ensure that the "Document Type" column is in your spreadsheet.')
-            elif self.upload_flag:
-                try:
-                    from preservica_modify.pres_upload import PreservicaMassUpload
-                except:
-                    logger.exception('Upload mode enabled but PreservicaMassUpload class not found. Please ensure you have the pres_upload module in your project and it contains the PreservicaMassUpload class.')
-                    raise Exception('Upload mode enabled but PreservicaMassUpload class not found. Please ensure you have the pres_upload module in your project and it contains the PreservicaMassUpload class.')
-                try:
-                    if self.UPLOAD_TYPE not in self.column_headers and self.DOCUMENT_TYPE not in self.column_headers:
-                        logger.warning('Upload mode enabled but no Document Type or Upload Type column found. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
-                        raise Exception('Upload mode enabled but no Document Type or Upload Type column found. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
-                    elif self.UPLOAD_TYPE in self.column_headers and self.DOCUMENT_TYPE in self.column_headers:
-                        logger.warning(f'Both Document Type and Upload Type columns found, defaulting to Upload Type column for reference. Using {self.UPLOAD_TYPE} as basis.')
-                        data_dict = self.df[[self.ENTITY_REF, self.UPLOAD_TYPE]].to_dict(orient='index')
-                    elif self.UPLOAD_TYPE in self.column_headers:
-                        logger.debug(f'Upload Type column found, using {self.UPLOAD_TYPE} as basis for upload mode.')
-                        data_dict = self.df[[self.ENTITY_REF, self.UPLOAD_TYPE]].to_dict(orient='index')
-                    elif self.DOCUMENT_TYPE in self.column_headers:
-                        logger.debug(f'Document Type column found, using {self.DOCUMENT_TYPE} as basis for upload mode.')
-                        data_dict = self.df[[self.ENTITY_REF, self.DOCUMENT_TYPE]].to_dict(orient='index')
-                    else:
-                        logger.error('No Document Type or Upload Type column found using Upload Mode, Exiting. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
-                        raise Exception('No Document Type or Upload Type column found using Upload Mode, Exiting. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')  
-                    last_ref = None
-                except KeyError as e:
-                    logger.exception(f'Key Error: {e} Please ensure that the "Document Type" and "Upload Type" columns are in your spreadsheet when using upload mode.')
-                    raise KeyError(f'Key Error: {e} Please ensure that the "Document Type" and "Upload Type" columns are in your spreadsheet when using upload mode.') from e
-            else:
-                data_dict = self.df.to_dict(orient='index')
-
-            if self.disable_continue is True:
-                start_idx = 0
-            else:
-                start_idx = self._load_continue_token(self.input_file)
-                try:
-                    assert isinstance(start_idx, int)
-                except AssertionError as e:
-                    logger.exception(f'Invalid continue token: {start_idx}, must be an integer index. Error: {e}')
-                    raise Exception(f'Invalid continue token: {start_idx}, must be an integer index.') from e
-
-            keys = list(data_dict.keys())
-            if start_idx in keys:
-                start_pos = keys.index(start_idx)
-            else:
-                start_pos = max(0, int(start_idx))
-            for idx in keys[start_pos:]:
-                assert isinstance(idx, int)
-                reference_dict = data_dict.get(idx)
-                if reference_dict is not None:
-                    ref = check_nan(reference_dict.get(self.ENTITY_REF))
-                else:
-                    logger.exception(f'No data found for index: {idx}')
-                    raise Exception(f'No data found for index: {idx}')
-                
-                logger.info(f"Processing: {ref}")
-                
-                # Toggles Upload Mode if upload flag is set, will attempt to find the reference for the upload either from the Document Type column or the Upload Type column. If no reference is found it will attempt to use the last reference used, this allows for easier uploading of multiple files to the same location.
-                if self.upload_flag is True:
-                    from preservica_modify.pres_upload import PreservicaMassUpload
-                    if self.UPLOAD_TYPE in self.column_headers:
-                        upload_type = reference_dict.get(self.UPLOAD_TYPE)
-                    elif self.DOCUMENT_TYPE in self.column_headers:
-                        upload_type = reference_dict.get(self.DOCUMENT_TYPE)
-                    #Ref is the upload folder reference.
-                    if ref is None or ref == "Use Parent" and doc_type is not None:
-                        if last_ref is None:
-                            logger.warning('No previous reference found. Please provide a reference in atleast the first row.')
-                            raise Exception('No previous reference found. Please provide a reference in atleast the first row.')
-                        PreservicaMassUpload('placeholder', spreadsheet_path=self.input_file).main(idx, str(last_ref), str(upload_type))
-                    else:
-                        last_ref = PreservicaMassUpload('placeholder',spreadsheet_path=self.input_file).main(idx, ref, str(upload_type))
-                    continue
-
-                elif self.DOCUMENT_TYPE in reference_dict:
-                    doc_type = reference_dict.get(self.DOCUMENT_TYPE)
-                    try:
-                        if doc_type == "SO":
-                            ent = self.entity.folder(str(ref))
-                        elif doc_type == "IO":
-                            ent = self.entity.asset(str(ref))
-                    except Exception as e:
-                        logger.warning(f'Error retrieving entity with reference {ref}: {e}, skipping to next row.')
-                        continue
-                else:
-                    try: 
-                        #This is a lazy solution to the issue of not being able to determine if the entity is a folder or asset.
-                        #It will try to get the entity as an asset, if it fails it will try to get it as a folder.
-                        try:
-                            ent = self.entity.asset(str(ref))
-                        except:
-                            ent = self.entity.folder(str(ref))
-                    except Exception as e:
-                        logger.warning(f'Error retrieving entity with reference {ref}: {e}, skipping to next row.')
-                        continue
-                if self.delete_flag is True:
-                    self.delete_update(idx, ent)
-                    continue
-                if any([self.title_flag, self.description_flag, self.security_flag]) is True:
-                    title, description, security = self.xip_lookup(idx)
-                    self.xip_update(ent,title,description,security)
-                self.ident_update(ent, self.ident_lookup(idx, self.IDENTIFIER_DEFAULT))
-                if self.metadata_flag is not None:
-                    xmls = self.generate_descriptive_metadata(idx, self.xml_files)
-                    if xmls is not None:                                
-                        for x in xmls:
-                            self.xnames = x.get('xnames')
-                            ns = list(x.keys())[0]
-                            assert isinstance(ns, str)
-                            xml_new = x.get(ns)
-                            assert isinstance(xml_new, etree._ElementTree)
-                            self.xml_update(ent, ns, xml_new)
-                if ent.entity_type == EntityType.ASSET and self.retention_flag is True:
-                    self.retention_update(ent, self.retention_lookup(idx))
-                self.move_update(idx, ent)
-                self._process_descendants(idx, ent)
-            self._remove_continue_token(self.input_file)
-        except KeyboardInterrupt:
-            logger.warning('Process interrupted by user, exiting...')
-            if self.disable_continue is False:
-                self._save_continue_token(self.input_file, idx)
-        except Exception as e:
-            logger.exception(f'Error in main loop: {e}')
-            raise Exception(f'Error in main loop: {e}') from e
-        
-    def main(self):
-        """
-        Main loop.
-        """
-        try:
-            self.init_df()
-            self._set_input_flags()
-            self.login_preservica()
-            if self.metadata_flag is not None:
-                self.init_generate_descriptive_metadata()
-            if self.retention_flag is True:
-                self.get_retentions()
-            if self.upload_flag is True:
-                self._process_upload_mode()
-                self._remove_continue_token(self.input_file)
-                return
-            if self.DOCUMENT_TYPE in self.column_headers:
-                data_dict = self.df[[self.ENTITY_REF, self.DOCUMENT_TYPE]].to_dict(orient='index')
-            else:
-                data_dict = self.df[[self.ENTITY_REF]].to_dict(orient='index')
-            self._process_rows(data_dict)
-            self._remove_continue_token(self.input_file)
-            logger.info('Process completed.')
-        except KeyError as e:
-            logger.exception(f'Key Error: {e}.')
-            raise KeyError(f'Key Error: {e}.')
-        except Exception as e:
-            logger.exception(f'Error in main loop: {e}')
-            raise Exception(f'Error in main loop: {e}') from e
-
     def _process_upload_mode(self) -> None:
         try:
             from preservica_modify.pres_upload import PreservicaMassUpload
@@ -1302,3 +1128,33 @@ class PreservicaMassMod:
             self.retention_update(ent, self.retention_lookup(idx))
         self.move_update(idx, ent)
         self._process_descendants(idx, ent)
+
+    def main(self):
+        """
+        Main loop.
+        """
+        try:
+            self.init_df()
+            self._set_input_flags()
+            self.login_preservica()
+            if self.metadata_flag is not None:
+                self.init_generate_descriptive_metadata()
+            if self.retention_flag is True:
+                self.get_retentions()
+            if self.upload_flag is True:
+                self._process_upload_mode()
+                self._remove_continue_token(self.input_file)
+                return
+            if self.DOCUMENT_TYPE in self.column_headers:
+                data_dict = self.df[[self.ENTITY_REF, self.DOCUMENT_TYPE]].to_dict(orient='index')
+            else:
+                data_dict = self.df[[self.ENTITY_REF]].to_dict(orient='index')
+            self._process_rows(data_dict)
+            self._remove_continue_token(self.input_file)
+            logger.info('Process completed.')
+        except KeyError as e:
+            logger.exception(f'Key Error: {e}.')
+            raise KeyError(f'Key Error: {e}.')
+        except Exception as e:
+            logger.exception(f'Error in main loop: {e}')
+            raise Exception(f'Error in main loop: {e}') from e
