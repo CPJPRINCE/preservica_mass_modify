@@ -8,7 +8,6 @@ license: Apache License 2.0"
 from .pres_modify import PreservicaMassMod
 from .cli import main, create_parser, run_cli
 from .common import check_nan, check_bool
-from .upload_mode import PreservicaUploadMode
 from importlib import metadata
 
 __author__ = "Christopher Prince (c.pj.prince@gmail.com)"
