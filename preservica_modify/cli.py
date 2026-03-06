@@ -242,11 +242,10 @@ def run_cli(args: argparse.Namespace) -> None:
                       ).main()
   
 def server_helper(server_str: str) -> str:
-        
-    if server_str.startswith("https://",""):
-        return server_str.replace("https://","")
+    if server_str.startswith("https://"):
+        return server_str.replace("https://", "", 1)
     if server_str.startswith("http://"):
-        return server_str.replace("http://","")
+        return server_str.replace("http://", "", 1)
     return server_str
 def fmthelper(x: str):
     x = x.lower()
