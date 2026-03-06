@@ -164,36 +164,6 @@ class PreservicaMassMod:
         except KeyringError as e:
             logger.warning(f"Unable to save password to keyring: {e}")
 
-    def init_df(self) -> None:
-
-        from .cli import fmthelper
-
-        input_fmt = fmthelper(os.path.splitext(self.input_file)[-1].replace('.',''))
-        
-        logger.info(f'Initializing dataframe from input file: {self.input_file} with detected format: {input_fmt}. May take time to load.')
-
-        if input_fmt.endswith("xlsx"):
-            self.df: pd.DataFrame = pd.read_excel(self.input_file)
-        elif input_fmt.endswith("csv"):
-            self.df: pd.DataFrame = pd.read_csv(self.input_file)
-        elif input_fmt.endswith("ods"):
-            self.df: pd.DataFrame = pd.read_excel(self.input_file, engine='odf')
-        elif input_fmt.endswith("json"):
-            self.df: pd.DataFrame = pd.read_json(self.input_file, orient='index')
-        elif input_fmt.endswith("xml"):
-            self.df: pd.DataFrame = pd.read_xml(self.input_file)
-        else:
-            log_msg = "Unsupported file type for input. Please use .xlsx, .csv, .json or .xml"
-            logger.error(log_msg)
-            raise ValueError(log_msg)
-       
-        self.column_headers = list(self.df.columns.values)
-        if self.column_sensistivity is True:
-            self.column_headers = [str(header).lower() for header in self.column_headers]
-            self.df.columns = self.column_headers
-        date_headers = [header for header in self.column_headers if "date" in str(header).lower()]
-        self.df[date_headers] = self.df[date_headers].apply(lambda x: pd.to_datetime(x,format='mixed'))
-
     def login_preservica(self):
         """
         Logs into Preservica. Either through manually logging in.
@@ -259,6 +229,100 @@ class PreservicaMassMod:
             log_msg = 'Login failed'
             logger.exception(log_msg)
             raise
+
+    def _save_continue_token(self, token_file: str, token: Optional[int]) -> None:
+        try:
+            token_file = token_file + "_continue.txt"
+            if token is not None:
+                with open(token_file, 'w') as f:
+                    f.write(str(token))
+                logger.info(f'Continue token saved to {token_file}')
+        except Exception as e:
+            log_msg = f'Failed to save continue token to file {token_file}: {e}'
+            logger.exception(log_msg)
+            raise
+
+    def _load_continue_token(self, token_file: str) -> Optional[int]:
+        try:
+            token_file = token_file + "_continue.txt"
+            if os.path.isfile(token_file):
+                with open(token_file, 'r') as f:
+                    token_str = f.read().strip()
+                    token = int(token_str)
+                    if isinstance(token, int):
+                        logger.info(f'Continue token loaded from {token_file}, processing from index: {token}')
+                        return token
+                    else:
+                        log_msg = f'Invalid continue token value in {token_file}: {token_str}'
+                        logger.error(log_msg)
+                        raise ValueError(log_msg)
+        except FileNotFoundError as e:
+            log_msg = f'Continue token file not found: {token_file}, starting from beginning...'
+            logger.error(log_msg)
+            return 0
+        except Exception as e:
+            log_msg = f'Invalid continue token value in {token_file}, starting from beginning...'
+            logger.exception(log_msg)
+            raise
+                        
+    def _remove_continue_token(self, token_file: str) -> None:
+        token_file = token_file + "_continue.txt"
+        if os.path.isfile(token_file):
+            os.remove(token_file)
+            logger.info(f'Continue token file {token_file} removed.')
+
+    def _set_input_flags(self) -> None:
+        """
+        Sets the input flags
+        """
+        self.title_flag = False
+        self.description_flag = False
+        self.security_flag = False
+        self.retention_flag = False
+        self.dest_flag = False
+        self.move_flag = False
+        if self.TITLE_FIELD in self.column_headers:
+            self.title_flag = True
+        if self.DESCRIPTION_FIELD in self.column_headers:
+            self.description_flag = True
+        if self.SECURITY_FIELD in self.column_headers:
+            self.security_flag = True
+        if self.RETENTION_FIELD in self.column_headers:
+            self.retention_flag = True
+        if self.MOVETO_FIELD in self.column_headers:
+            self.move_flag = True
+        logger.debug(f'Input Flags - Title: {self.title_flag}, Description: {self.description_flag}, Security: {self.security_flag}, Retention: {self.retention_flag}, Move: {self.move_flag}')
+
+    def init_df(self) -> None:
+
+        from .cli import fmthelper
+
+        input_fmt = fmthelper(os.path.splitext(self.input_file)[-1].replace('.',''))
+        
+        logger.info(f'Initializing dataframe from input file: {self.input_file} with detected format: {input_fmt}. May take time to load.')
+
+        if input_fmt.endswith("xlsx"):
+            self.df: pd.DataFrame = pd.read_excel(self.input_file)
+        elif input_fmt.endswith("csv"):
+            self.df: pd.DataFrame = pd.read_csv(self.input_file)
+        elif input_fmt.endswith("ods"):
+            self.df: pd.DataFrame = pd.read_excel(self.input_file, engine='odf')
+        elif input_fmt.endswith("json"):
+            self.df: pd.DataFrame = pd.read_json(self.input_file, orient='index')
+        elif input_fmt.endswith("xml"):
+            self.df: pd.DataFrame = pd.read_xml(self.input_file)
+        else:
+            log_msg = "Unsupported file type for input. Please use .xlsx, .csv, .json or .xml"
+            logger.error(log_msg)
+            raise ValueError(log_msg)
+       
+        self.column_headers = list(self.df.columns.values)
+        if self.column_sensistivity is True:
+            self.column_headers = [str(header).lower() for header in self.column_headers]
+            self.df.columns = self.column_headers
+        date_headers = [header for header in self.column_headers if "date" in str(header).lower()]
+        self.df[date_headers] = self.df[date_headers].apply(lambda x: pd.to_datetime(x,format='mixed'))
+
 
     def print_local_xmls(self) -> None:
         try:
@@ -384,69 +448,6 @@ class PreservicaMassMod:
             log_msg = f'Failed to print Descriptive metadta files, ensure correct path {e}'
             logger.exception(log_msg)
             raise
-
-    def _save_continue_token(self, token_file: str, token: Optional[int]) -> None:
-        try:
-            token_file = token_file + "_continue.txt"
-            if token is not None:
-                with open(token_file, 'w') as f:
-                    f.write(str(token))
-                logger.info(f'Continue token saved to {token_file}')
-        except Exception as e:
-            log_msg = f'Failed to save continue token to file {token_file}: {e}'
-            logger.exception(log_msg)
-            raise
-
-    def _load_continue_token(self, token_file: str) -> Optional[int]:
-        try:
-            token_file = token_file + "_continue.txt"
-            if os.path.isfile(token_file):
-                with open(token_file, 'r') as f:
-                    token_str = f.read().strip()
-                    token = int(token_str)
-                    if isinstance(token, int):
-                        logger.info(f'Continue token loaded from {token_file}, processing from index: {token}')
-                        return token
-                    else:
-                        log_msg = f'Invalid continue token value in {token_file}: {token_str}'
-                        logger.error(log_msg)
-                        raise ValueError(log_msg)
-        except FileNotFoundError as e:
-            log_msg = f'Continue token file not found: {token_file}, starting from beginning...'
-            logger.error(log_msg)
-            return 0
-        except Exception as e:
-            log_msg = f'Invalid continue token value in {token_file}, starting from beginning...'
-            logger.exception(log_msg)
-            raise
-                        
-    def _remove_continue_token(self, token_file: str) -> None:
-        token_file = token_file + "_continue.txt"
-        if os.path.isfile(token_file):
-            os.remove(token_file)
-            logger.info(f'Continue token file {token_file} removed.')
-
-    def _set_input_flags(self) -> None:
-        """
-        Sets the input flags
-        """
-        self.title_flag = False
-        self.description_flag = False
-        self.security_flag = False
-        self.retention_flag = False
-        self.dest_flag = False
-        self.move_flag = False
-        if self.TITLE_FIELD in self.column_headers:
-            self.title_flag = True
-        if self.DESCRIPTION_FIELD in self.column_headers:
-            self.description_flag = True
-        if self.SECURITY_FIELD in self.column_headers:
-            self.security_flag = True
-        if self.RETENTION_FIELD in self.column_headers:
-            self.retention_flag = True
-        if self.MOVETO_FIELD in self.column_headers:
-            self.move_flag = True
-        logger.debug(f'Input Flags - Title: {self.title_flag}, Description: {self.description_flag}, Security: {self.security_flag}, Retention: {self.retention_flag}, Move: {self.move_flag}')
 
     def get_retentions(self) -> list[dict]:
         """
