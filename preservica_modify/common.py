@@ -6,20 +6,22 @@ license: Apache License 2.0"
 """
 
 import pandas as pd
-import logging, time, os
-from typing import Optional, Literal
+import logging, time
+from typing import Literal, Optional, Any
 
 logger = logging.getLogger(__name__)
 
-def check_nan(value):
+def check_nan(value) -> Optional[Any]:
     if str(value).lower() in {"nan","nat"}:
         value = None
     return value
 
-def check_bool(value):
+def check_bool(value) -> bool:
     if str(value).lower() in {"true","1","yes"}:
         return True
-    elif check_nan(value) in {None,"","false","0","no"}:
+    elif check_nan(value) in {None,"","false","0","no","nan","nat"}:
+        return False
+    else: 
         return False
 
 def export_csv(df: pd.DataFrame, output_filename: str, sep: str = ",", index: bool = False):

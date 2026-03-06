@@ -172,18 +172,21 @@ def run_cli(args: argparse.Namespace) -> None:
         raise SystemExit()
 
     if not os.path.isfile(os.path.abspath(args.input)):
-        logger.exception("Invlaid file selected for input, closing program...")
-        raise Exception("Invalid input file")
+        logger.error("Invlaid file selected for input, closing program...")
+        raise FileNotFoundError("Invalid input file")
 
     if not args.use_credentials and not args.server:
-        logger.exception("Server not provided. Please provide either a credentials file or a server URL for authentication, closing program...")
-        raise 
+        msg = "Server not provided. Please provide either a credentials file or a server URL for authentication, closing program..."
+        logger.error(msg)
+        raise ValueError(msg)
     if not args.use_credentials and not args.username:
-        logger.exception("No authentication method provided. Please provide either a credentials file or a username for authentication, closing program...")
-        raise
+        msg = "No authentication method provided. Please provide either a credentials file or a username for authentication, closing program..."
+        logger.error(msg)
+        raise ValueError(msg)
     if args.delete and not (args.manager_username or args.use_credentials):
-        logger.exception("Delete Option requires a Manager Username or Credentials file for authentication. Please provide a credentials file or remove the delete option, closing program...")
-        raise Exception("Delete Option requires a Manager Username or Credentials file for authentication. Please provide a credentials file or remove the delete option.")
+        msg = "Delete Option requires a Manager Username or Credentials file for authentication. Please provide a credentials file or remove the delete option."
+        logger.error(msg)
+        raise ValueError(msg)
     if args.test_login:
         try:
             PreservicaMassMod(input_file=args.input,
@@ -197,18 +200,20 @@ def run_cli(args: argparse.Namespace) -> None:
                               save_password_to_keyring=args.save_password_to_keyring).login_preservica()
             logger.info("Login successful! Exiting program.")
             raise SystemExit()
-        except Exception as e:
-            logger.exception(f"Login failed: {e}")
-            raise Exception(f"Login failed: {e}") from e
+        except Exception:
+            logger.exception("Login failed")
+            raise
 
     if args.metadata_dir is not None:
         if not os.path.isdir(os.path.abspath(args.metadata_dir)):
-            logger.exception("Invlaid folder selected for metadata directory, closing program...")
-            raise
+            msg = "Invlaid folder selected for metadata directory, closing program..."
+            logger.error(msg)
+            raise NotADirectoryError(msg)
     if args.descendants:
         if not any(x in ["include-assets","include-folders"] for x in args.descendants):
-            logger.exception('Descendants must include either "include-assets" or "include-folders"')
-            raise
+            msg = 'Descendants must include either "include-assets" or "include-folders"'
+            logger.error(msg)
+            raise ValueError(msg)
         if "include-title" in args.descendants:
             i = input("WARNING: You are about to update the Title field of all descendants." \
             "\nThis is not something you would normally do and it can potentially lead to corruption of your database...\nPlease confirm you wish to continue by entering Y: ")
@@ -237,10 +242,12 @@ def run_cli(args: argparse.Namespace) -> None:
                       ).main()
   
 def server_helper(server_str: str) -> str:
-    if server_str.startswith("http://") or server_str.startswith("https://"):
-        return server_str.replace("http://","").replace("https://","")
+        
+    if server_str.startswith("https://",""):
+        return server_str.replace("https://","")
+    if server_str.startswith("http://"):
+        return server_str.replace("http://","")
     return server_str
-
 def fmthelper(x: str):
     x = x.lower()
     if x in ('xlsx', 'xlsm', 'xltx', 'xltm', 'xlsb', 'xls', 'excel', 'xl'):
@@ -275,7 +282,10 @@ def main() -> None:
         args = parser.parse_args()
         run_cli(args)
     except KeyboardInterrupt:
-        logger.warning("Process interrupted by user, exiting...")
+        raise SystemExit()
+    except Exception as e:
+        logger.exception(f"An error occurred: {e}")
+        raise
         
 if __name__ == "__main__":
     main()
