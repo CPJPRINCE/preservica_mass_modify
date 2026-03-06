@@ -53,7 +53,7 @@ class PreservicaMassMod:
                  keyring_service: str = "preservica_modify",
                  save_password_to_keyring: bool = False,
                  disable_continue: bool = False,
-                 column_sensistivity: bool = False,
+                 column_sensitivity: bool = False,
                  options_file: str = os.path.join(os.path.dirname(__file__),'options', 'options.properties')):
         
         self.metadata_dir = metadata_dir
@@ -88,15 +88,15 @@ class PreservicaMassMod:
         
         self.disable_continue = disable_continue
 
-        self.column_sensistivity = column_sensistivity
+        self.column_sensitivity = column_sensitivity
 
         if options_file is None:
             options_file = os.path.join(os.path.dirname(__file__),'options','options.properties')
-        self.parse_config(options_file=os.path.abspath(options_file), column_sensistivity=self.column_sensistivity)
+        self.parse_config(options_file=os.path.abspath(options_file), column_sensitivity=self.column_sensitivity)
 
         self.xnames: list[str] = []
 
-    def parse_config(self, options_file: str, column_sensistivity: bool = False) -> None:
+    def parse_config(self, options_file: str, column_sensitivity: bool = False) -> None:
         config = configparser.ConfigParser()
         read_config = config.read(options_file, encoding='utf-8')
         if not read_config:
@@ -104,7 +104,7 @@ class PreservicaMassMod:
 
         section = config['options'] if 'options' in config else {}
 
-        if column_sensistivity:
+        if column_sensitivity:
             section = {k:v.lower() for k,v in section.items()}
 
         self.ENTITY_REF=section.get('ENTITY_REF', 'Entity Ref')
@@ -317,7 +317,7 @@ class PreservicaMassMod:
             raise ValueError(log_msg)
        
         self.column_headers = list(self.df.columns.values)
-        if self.column_sensistivity is True:
+        if self.column_sensitivity is True:
             self.column_headers = [str(header).lower() for header in self.column_headers]
             self.df.columns = self.column_headers
         date_headers = [header for header in self.column_headers if "date" in str(header).lower()]
@@ -338,10 +338,10 @@ class PreservicaMassMod:
                     else:
                         elem_path = xml_file.getelementpath(elem)
                         elem = etree.QName(elem)
-                        elem_lnpath = elem_path.replace(f"{{{elem.namespace}}}", root_element_ln + ":")
-                        print(elem_lnpath)
+                        elem_ln_path = elem_path.replace(f"{{{elem.namespace}}}", root_element_ln + ":")
+                        print(elem_ln_path)
         except Exception as e:
-            log_msg = f'Failed to print Descriptive metadta files, ensure correct path {e}'
+            log_msg = f'Failed to print Descriptive metadata files, ensure correct path {e}'
             logger.exception(log_msg)
             raise
 
@@ -364,10 +364,10 @@ class PreservicaMassMod:
                     else:
                         elem_path = xml_file.getelementpath(elem)
                         elem = etree.QName(elem)
-                        elem_lnpath = elem_path.replace(f"{{{elem.namespace}}}", root_element_ln + ":")
-                        print(elem_lnpath)
+                        elem_ln_path = elem_path.replace(f"{{{elem.namespace}}}", root_element_ln + ":")
+                        print(elem_ln_path)
         except Exception as e:
-            log_msg = f'Failed to print Descriptive metadta files, ensure correct path {e}'
+            log_msg = f'Failed to print Descriptive metadata files, ensure correct path {e}'
             logger.exception(log_msg)
             raise
 
@@ -385,8 +385,8 @@ class PreservicaMassMod:
                     else:
                         elem_path = xml_file.getelementpath(elem)
                         elem = etree.QName(elem)
-                        elem_lnpath = elem_path.replace(f"{{{elem.namespace}}}", root_element_ln + ":")
-                        column_list.append(elem_lnpath)
+                        elem_ln_path = elem_path.replace(f"{{{elem.namespace}}}", root_element_ln + ":")
+                        column_list.append(elem_ln_path)
                 xml_df = pd.DataFrame(columns=column_list,index=None)
                 if output_format == 'xlsx':
                     export_xl(xml_df,file.name.replace('.xml','.xlsx'))
@@ -402,7 +402,7 @@ class PreservicaMassMod:
                 else:
                     export_xl(xml_df, file.name.replace('.xml','.xlsx'))
         except Exception as e:
-            log_msg = f'Failed to print Descriptive metadta files, ensure correct path {e}'
+            log_msg = f'Failed to print Descriptive metadata files, ensure correct path {e}'
             logger.exception(log_msg)
             raise
 
@@ -426,8 +426,8 @@ class PreservicaMassMod:
                     else:
                         elem_path = xml_file.getelementpath(elem)
                         elem = etree.QName(elem)
-                        elem_lnpath = elem_path.replace(f"{{{elem.namespace}}}", root_element_ln + ":")
-                        column_list.append(elem_lnpath)
+                        elem_ln_path = elem_path.replace(f"{{{elem.namespace}}}", root_element_ln + ":")
+                        column_list.append(elem_ln_path)
                 xml_df = pd.DataFrame(columns=column_list,index=None)
                 if output_format == 'xlsx':
                     export_xl(xml_df, xml_name + '.xlsx')
@@ -445,7 +445,7 @@ class PreservicaMassMod:
                 else:
                     export_xl(xml_df, xml_name + '.xlsx')
         except Exception as e:
-            log_msg = f'Failed to print Descriptive metadta files, ensure correct path {e}'
+            log_msg = f'Failed to print Descriptive metadata files, ensure correct path {e}'
             logger.exception(log_msg)
             raise
 
@@ -514,7 +514,7 @@ class PreservicaMassMod:
 
     def xip_lookup(self, idx: Hashable) -> tuple[Optional[str], Optional[str], Optional[str]]:
         """
-        Uses the pandas index to retreieve data from the "Title, Description and Security" columns. Sets data in Entity.
+        Uses the pandas index to retrieve data from the "Title, Description and Security" columns. Sets data in Entity.
         :param idx: Pandas Index to lookup
         """
 
@@ -556,7 +556,7 @@ class PreservicaMassMod:
     
     def ident_lookup(self, idx: Hashable, default_key: Optional[str] = None) -> Optional[Dict[str, Optional[str]]]:
         """
-        Uses the pandas index to retreieve data from the "Identifer","Archive_Reference", columns. Sets identifers in Entity.
+        Uses the pandas index to retrieve data from the "Identifier","Archive_Reference", columns. Sets identifiers in Entity.
         "Archive_Reference" & "Accession_Reference" are hard-set.
 
         :param idx: Pandas Index to lookup
@@ -599,9 +599,9 @@ class PreservicaMassMod:
         
     def retention_lookup(self, idx: Hashable):
         """
-        Uses the pandas index to retreieve data from the "Retention Policy" column
+        Uses the pandas index to retrieve data from the "Retention Policy" column
 
-        Matched agasint the policies obtained in the obtain_retentions function.
+        Matched against the policies obtained in the obtain_retentions function.
 
         :param idx: Pandas Index to lookup
         :param e: Entity to act upon
@@ -656,7 +656,7 @@ class PreservicaMassMod:
 
     def delete_lookup(self, idx: Hashable):
         """
-        Uses the pandas index to retrieve data from the "Delete" column. If True intitaites a Delete.                            self.xml_update(ent, ns, xml_new)
+        Uses the pandas index to retrieve data from the "Delete" column. If True initiates a Delete.                            self.xml_update(ent, ns, xml_new)
                 if ent.entity_type == EntityType.ASSET and self.retention_flag is True:
                     self.retention_update(ent, self.retention_lookup(idx))
 
@@ -673,7 +673,7 @@ class PreservicaMassMod:
 
     def init_generate_descriptive_metadata(self) -> List[Dict[str, Any]]:
         """
-        Initiation for the generate_descriptive_metadata function. Seperated to avoid unecessary repetition.
+        Initiation for the generate_descriptive_metadata function. Separated to avoid unnecessary repetition.
         First takes xmls files in metadata_dir, generates a list of dicts of the elements in XML file. Then compares the Column headers in the spreadsheet against the XML's in the Metadata Directory.
         """
         try:
@@ -701,8 +701,8 @@ class PreservicaMassMod:
                         elem = etree.QName(elem)
                         elem_ln = elem.localname
                         elem_ns = elem.namespace
-                        elem_lnpath = elem_path.replace(f"{{{elem_ns}}}", root_element_ln + ":")
-                        elements_list.append({"Name": root_element_ln + ":" + elem_ln, "XName": f"{{{elem_ns}}}{elem_ln}", "Namespace": elem_ns, "Path": elem_lnpath})
+                        elem_ln_path = elem_path.replace(f"{{{elem_ns}}}", root_element_ln + ":")
+                        elements_list.append({"Name": root_element_ln + ":" + elem_ln, "XName": f"{{{elem_ns}}}{elem_ln}", "Namespace": elem_ns, "Path": elem_ln_path})
                     try:
                         for elem_dict in elements_list:
                             if elem_dict.get('Name') in self.column_headers or elem_dict.get('Path') in self.column_headers:
@@ -712,7 +712,7 @@ class PreservicaMassMod:
                         logger.exception(log_msg)
                         raise
                 if len(list_xml) > 0:
-                    self.xml_files.append({'data': list_xml, 'localname': root_element_ln, 'localns': root_element_ns, 'xmlfile': path})
+                    self.xml_files.append({'data': list_xml, 'local_name': root_element_ln, 'local_ns': root_element_ns, 'xml_file': path})
                     logger.info(f'Matching columns found in spreadsheet for XML file: {file.name}, added to metadata generation list.')
                 else:
                     logger.warning(f'No matching columns found in spreadsheet for XML file: {file.name}, skipping this file for metadata generation.')
@@ -740,25 +740,25 @@ class PreservicaMassMod:
                 xml_data = xml_file.get('data')
                 xnames: list[Optional[str]] = []
                 xnames = [x.get('XName') for x in xml_data if isinstance(x, Dict)] if xml_data is not None else []                
-                localname = xml_file.get('localname', None)
-                localns = xml_file.get('localns', None)
-                if localname is None or localns is None:
-                    logger.warning(f'Missing localname or localns for XML file: {xml_file.get("xmlfile")}, skipping XML generation for this file.')
+                local_name = xml_file.get('local_name', None)
+                local_ns = xml_file.get('local_ns', None)
+                if local_name is None or local_ns is None:
+                    logger.warning(f'Missing local_name or local_ns for XML file: {xml_file.get("xml_file")}, skipping XML generation for this file.')
                     continue
                 if xml_data is None or len(xml_data) == 0:
-                    logger.warning(f'No XML elements found for {xml_file.get("xmlfile")}, skipping XML generation for this file.')
+                    logger.warning(f'No XML elements found for {xml_file.get("xml_file")}, skipping XML generation for this file.')
                     continue
                 else:
-                    xml_new = etree.parse(str(xml_file.get('xmlfile')))
+                    xml_new = etree.parse(str(xml_file.get('xml_file')))
                     for elem_dict in xml_data:
                         if not isinstance(elem_dict, Dict):
-                            logger.warning(f'Invalid element data for {elem_dict} in file {xml_file.get("xmlfile")}, skipping this element.')
+                            logger.warning(f'Invalid element data for {elem_dict} in file {xml_file.get("xml_file")}, skipping this element.')
                             continue
                         name = elem_dict.get('Name')
                         path = elem_dict.get('Path')
-                        elmns = elem_dict.get('Namespace')
-                        if not isinstance(name, str) or not isinstance(path, str) or not isinstance(elmns, str):
-                            logger.warning(f'Missing Name or Path for element {elem_dict} in file {xml_file.get("xmlfile")}, skipping this element.')
+                        elm_ns = elem_dict.get('Namespace')
+                        if not isinstance(name, str) or not isinstance(path, str) or not isinstance(elm_ns, str):
+                            logger.warning(f'Missing Name or Path for element {elem_dict} in file {xml_file.get("xml_file")}, skipping this element.')
                             continue
                         if self.metadata_flag in {'exact'}:
                             val = check_nan(self._cell(idx, path))
@@ -771,20 +771,20 @@ class PreservicaMassMod:
                                 val = pd.to_datetime(val)
                                 val = datetime.strftime(val, "%Y-%m-%dT%H:%M:%S.000Z")
                         if self.metadata_flag in {'exact'}:
-                            n = path.replace(localname + ":", f"{{{elmns}}}")
+                            n = path.replace(local_name + ":", f"{{{elm_ns}}}")
                             elem = xml_new.find(f'./{n}')
                             if elem is None:
                                 logger.warning(f'XML element not found for path: {n, path} in {xml_file}.')
                                 continue
                         elif self.metadata_flag in {'flat'}:
                             n = name.split(':')[-1]
-                            elem = xml_new.find(f'.//{{{elmns}}}{n}')
+                            elem = xml_new.find(f'.//{{{elm_ns}}}{n}')
                             if elem is None:
                                 logger.warning(f'Element not found in XML for {name, path} in {xml_file}.')
                                 continue
                         if elem is not None:
                             elem.text = str(val)
-                    xml_list.append({localns: xml_new, 'xnames': xnames})
+                    xml_list.append({local_ns: xml_new, 'xnames': xnames})
             return xml_list
         except KeyError as e:
             log_msg = f'Key Error, missing Column: {e} please ensure column header\'s are an exact match...'
@@ -830,8 +830,8 @@ class PreservicaMassMod:
                 ident = items[1]
                 if ident is not None:
                     if any(x[0] for x in xip_idents if x[0] == key_name):
-                        oldident = [x[1] for x in xip_idents if x[0] == key_name][0]
-                        logger.info(f'Updating {ent.reference} Updating identifier {key_name, oldident} to: {key_name, ident}')
+                        old_ident = [x[1] for x in xip_idents if x[0] == key_name][0]
+                        logger.info(f'Updating {ent.reference} Updating identifier {key_name, old_ident} to: {key_name, ident}')
                         if self.dummy_flag is False:
                             self.entity.update_identifiers(ent,key_name,str(ident))
                     else: 
@@ -841,10 +841,10 @@ class PreservicaMassMod:
                 else:
                     if self.blank_override is True:
                         if any(x[0] for x in xip_idents if x[0] == key_name):
-                            oldident = [x[1] for x in xip_idents if x[0] == key_name][0]
-                            logger.info(f'Updating {ent.reference} Deleting identifier {key_name, oldident}')
+                            old_ident = [x[1] for x in xip_idents if x[0] == key_name][0]
+                            logger.info(f'Updating {ent.reference} Deleting identifier {key_name, old_ident}')
                             if self.dummy_flag is False:
-                                self.entity.delete_identifiers(ent,key_name,str(oldident))
+                                self.entity.delete_identifiers(ent,key_name,str(old_ident))
                         else:
                             pass
         except Exception:
@@ -905,11 +905,11 @@ class PreservicaMassMod:
         try:
             #Change so it's dynamic - not only self.upload_flag - also indent_update needs same treatment
             if self.upload_flag:
-                emeta = None
+                ent_meta = None
             else:
-                emeta = self.entity.metadata_for_entity(ent, ns)
+                ent_meta = self.entity.metadata_for_entity(ent, ns)
             # Check if metadata exists for the entity
-            if emeta is None:
+            if ent_meta is None:
                 xml_to_upload = etree.tostring(xml_new)
                 logger.info(f"Updating {ent.reference} Adding Metadata for: {ns}")
                 logger.debug(f'New XML Metadata: {xml_to_upload}')
@@ -917,7 +917,7 @@ class PreservicaMassMod:
                     self.entity.add_metadata(ent, ns, xml_to_upload.decode('utf-8'))
             # Metadata exists, merge and update
             else:
-                xml_to_upload = etree.tostring(self.xml_merge(etree.fromstring(emeta), xml_new))
+                xml_to_upload = etree.tostring(self.xml_merge(etree.fromstring(ent_meta), xml_new))
                 logger.info(f"Updating {ent.reference} Updating Metadata for: {ns}")
                 logger.debug(f'Updated XML Metadata: {xml_to_upload}')
                 if self.dummy_flag is False:
@@ -929,10 +929,10 @@ class PreservicaMassMod:
 
     def move_update(self, idx: int, ent: Entity):
         """
-        Uses the pandas index to retreieve data from the "Move To" column. Intitaites a move. 
+        Uses the pandas index to retrieve data from the "Move To" column. Initiates a move. 
 
         :param idx: Pandas Index to lookup
-        :param Enitty: Entity to act upon
+        :param ent: Entity to act upon
         """
         if self.move_flag is True:
             dest = check_nan(self.df[self.MOVETO_FIELD].loc[idx])
@@ -949,7 +949,7 @@ class PreservicaMassMod:
 
     def delete_update(self, idx: Hashable, ent: Entity):
         """
-        Uses the pandas index to retrieve data from the "Delete" column. If True intitaites a Delete.
+        Uses the pandas index to retrieve data from the "Delete" column. If True initiates a Delete.
         Requires use of a .credentials file.
 
         Delete Flag must also be set.
@@ -985,7 +985,7 @@ class PreservicaMassMod:
 
     def _process_descent(self,idx: int, descendant_ent: Entity, entity_type: EntityType):
         """
-        Process function for descendants, seperated to avoid repetition.
+        Process function for descendants, separated to avoid repetition.
         """
         if self.descendants_flag is None:
             log_msg = 'Descendants flag not set, cannot process descendants. Ensure you have selected at least 1 option for descendants processing.'
