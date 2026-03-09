@@ -1,0 +1,312 @@
+name: Build Portable Executables with Nuitka
+
+on:
+  push:
+    tags:
+      - '*'
+    branches:
+      - 'dev'
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - 'assets/**'
+      - '.github/**'
+  pull_request:
+    branches: [master, dev]
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - 'assets/**'
+      - '.github/**'
+
+permissions:
+  contents: write
+
+jobs:
+  verify-build-trigger:
+    name: Verify Build Trigger
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check-ref.outputs.should_build }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check branch/tag rules
+        id: check-ref
+        run: |
+          event_name="${{ github.event_name }}"
+          ref_type="${{ github.ref_type }}"
+          ref_name="${{ github.ref_name }}"
+
+          if [ "$event_name" = "pull_request" ]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "Build enabled for pull request."
+            exit 0
+          fi
+
+          if [ "$ref_type" = "branch" ] && [ "$ref_name" = "dev" ]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "Build enabled for push to dev."
+            exit 0
+          fi
+
+          if [ "$ref_type" = "tag" ]; then
+            if [[ "$ref_name" == v* ]]; then
+              git fetch origin master --depth=1
+              if git merge-base --is-ancestor "$GITHUB_SHA" "origin/master"; then
+                echo "should_build=true" >> "$GITHUB_OUTPUT"
+                echo "Build enabled for v* tag on master."
+              else
+                echo "should_build=false" >> "$GITHUB_OUTPUT"
+                echo "Tag $ref_name matches v* but is not on master; skipping build."
+              fi
+            else
+              echo "should_build=true" >> "$GITHUB_OUTPUT"
+              echo "Build enabled for non-v* tag: $ref_name"
+            fi
+            exit 0
+          fi
+
+          echo "should_build=false" >> "$GITHUB_OUTPUT"
+          echo "Unsupported ref type/rule; skipping build."
+
+  build-windows:
+    name: Build Windows Portable
+    runs-on: windows-latest
+    needs: verify-build-trigger
+    if: needs.verify-build-trigger.outputs.should_build == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          choco install llvm -y
+          python -m pip install --upgrade pip
+          pip install nuitka ordered-set zstandard odfpy
+          pip install -e .
+
+      - name: Build Windows executable with Nuitka
+        env:
+          NUITKA_CACHE_DIR: ${{ runner.temp }}/nuitka_cache
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = [regex]::Match($tag, '\d+\.\d+\.\d+').Value
+          if ($version -eq "") { $version = "1.0.0" }
+          python -m nuitka `
+            --onefile `
+            --follow-imports `
+            -o preservica_modify `
+            --windows-console-mode=force `
+            --output-dir=build `
+            --nofollow-import-to=pandas.tests `
+            --nofollow-import-to=pandas.conftest `
+            --include-package=odf `
+            --include-package=pandas `
+            --include-package=preservica_mass_modify `
+            --include-data-dir=preservica_mass_modify/options=options `
+            --company-name="Preservica Mass Modify" `
+            --product-name="Preservica Mass Modify" `
+            --file-version="$version" `
+            --product-version="$version" `
+            --copyright="Copyright $(Get-Date -Format yyyy)" `
+            --assume-yes-for-downloads `
+            --quiet `
+            --clang `
+            preservica_mass_modify/cli.py
+
+      - name: Create Windows package
+        run: |
+          $version = "${{ github.ref_name }}" -replace "^v", ""
+          if ($version -eq "") { $version = "1.0.0" }
+
+          # Create folder structure
+          New-Item -ItemType Directory -Force -Path "preservica_modify/bin" | Out-Null
+
+          # Copy executable and wrapper
+          Copy-Item -Path "build/preservica_modify.exe" -Destination "preservica_modify/bin/"
+          Copy-Item -Path "installer/preservica_modify.cmd" -Destination "preservica_modify/bin/"
+
+          # Copy documentation and scripts
+          Copy-Item -Path "installer/README.txt" -Destination "preservica_modify/"
+          Copy-Item -Path "installer/install.cmd" -Destination "preservica_modify/"
+          Copy-Item -Path "installer/uninstall.cmd" -Destination "preservica_modify/"
+          Copy-Item -Path "LICENSE.md" -Destination "preservica_modify/" -ErrorAction SilentlyContinue
+
+          # Create portable ZIP
+          Compress-Archive -Path "preservica_modify" -DestinationPath "preservica_modify_windows_$version.zip"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: preservica_modify-windows
+          path: preservica_modify_windows_*.zip
+
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          files: preservica_modify_windows_*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-linux:
+    name: Build Linux Portable
+    runs-on: ubuntu-latest
+    needs: verify-build-trigger
+    if: needs.verify-build-trigger.outputs.should_build == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y patchelf clang
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install nuitka ordered-set zstandard odfpy
+          pip install -e .
+
+      - name: Build Linux executable with Nuitka
+        run: |
+          python -m nuitka \
+            --onefile \
+            --follow-imports \
+            -o preservica_modify \
+            --output-dir=build \
+            --include-package=odf \
+            --include-package=pandas \
+            --nofollow-import-to=pandas.tests \
+            --nofollow-import-to=pandas.conftest \
+            --include-package=preservica_mass_modify \
+            --include-data-dir=preservica_mass_modify/options=options \
+            --assume-yes-for-downloads \
+            --quiet \
+            --clang \
+            preservica_mass_modify/cli.py
+
+      - name: Create Linux artifact archive
+        run: |
+          version="${{ github.ref_name }}"
+          version="${version#v}"
+          version="${version#test-}"
+          if [ -z "$version" ] || [ "$version" = "master" ]; then
+            version="1.0.0"
+          fi
+          tar -czf "preservica_modify_linux_${version}.tar.gz" -C build preservica_modify
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: preservica_modify-linux
+          path: preservica_modify_linux_*.tar.gz
+
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          files: preservica_modify_linux_*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-macos:
+    name: Build macOS Portable
+    runs-on: macos-latest
+    needs: verify-build-trigger
+    if: needs.verify-build-trigger.outputs.should_build == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install nuitka ordered-set zstandard odfpy
+          pip install -e .
+
+      - name: Build macOS executable with Nuitka
+        run: |
+          python -m nuitka \
+            --onefile \
+            --follow-imports \
+            -o preservica_modify \
+            --output-dir=build \
+            --nofollow-import-to=pandas.tests \
+            --nofollow-import-to=pandas.conftest \
+            --include-package=odf \
+            --include-package=pandas \
+            --include-package=preservica_mass_modify \
+            --include-data-dir=preservica_mass_modify/options=options \
+            --macos-create-app-bundle \
+            --assume-yes-for-downloads \
+            --quiet \
+            --clang \
+            preservica_mass_modify/cli.py
+
+      - name: Create macOS artifact archive
+        run: |
+          version="${{ github.ref_name }}"
+          version="${version#v}"
+          version="${version#test-}"
+          if [ -z "$version" ] || [ "$version" = "master" ]; then
+            version="1.0.0"
+          fi
+          tar -czf "preservica_modify_macos_${version}.tar.gz" -C build preservica_modify
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: preservica_modify-macos
+          path: preservica_modify_macos_*.tar.gz
+
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          files: preservica_modify_macos_*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  create-release-notes:
+    name: Create Release Notes
+    runs-on: ubuntu-latest
+    needs: [verify-build-trigger, build-windows, build-linux, build-macos]
+    if: startsWith(github.ref, 'refs/tags/') && needs.verify-build-trigger.outputs.should_build == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Release Notes
+        run: |
+          echo "## Portable Executables" > release_notes.md
+          echo "" >> release_notes.md
+          echo "### Downloads" >> release_notes.md
+          echo "- **Windows**: \`preservica_modify_windows_\`" >> release_notes.md
+          echo "- **Linux**: \`preservica_modify_linux_\`" >> release_notes.md
+          echo "- **macOS**: \`preservica_modify_macos_\`" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "These are standalone executables that do not require Python to be installed." >> release_notes.md
+          echo "" >> release_notes.md
+          echo "### Usage" >> release_notes.md
+          echo "\`\`\`bash" >> release_notes.md
+          echo "./preservica_modify /path/to/root -p PREFIX -o /path/to/output" >> release_notes.md
+          echo "\`\`\`" >> release_notes.md
