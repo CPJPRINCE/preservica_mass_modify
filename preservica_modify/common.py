@@ -1,5 +1,5 @@
 """
-Common Library for Preservica Modify
+Common Library for Preservica Mass Modify
 
 Author: Christopher Prince
 license: Apache License 2.0"
@@ -30,6 +30,7 @@ def export_csv(df: pd.DataFrame, output_filename: str, sep: str = ",", index: bo
         logger.info(f"Saved to: {output_filename}")
     except ModuleNotFoundError:
         logger.warning('Pandas module not found, cannot export to csv. Please install via: pip install pandas')
+        raise SystemExit()
     except PermissionError as e:
         logger.warning(f'File {e} failed to open; waiting 10 seconds to try again...')
         time.sleep(10)
@@ -80,7 +81,7 @@ def export_ods(df: pd.DataFrame, output_filename: str, index: bool = False):
         logger.info(f"Saved to: {output_filename}")
     except ModuleNotFoundError:
         logger.warning('odfpy Module not found, cannot export to ods, please install via: pip install odfpy')
-        raise
+        raise SystemExit()
     except PermissionError as e:
         logger.warning(f'File {e} failed to open; waiting 10 seconds to try again...')
         time.sleep(10)
