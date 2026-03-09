@@ -1069,9 +1069,9 @@ class PreservicaMassMod:
                     if last_ref is None:
                         logger.error('No previous reference found. Please provide a reference in at least the first row.')
                         raise ValueError('No previous reference found. Please provide a reference in at least the first row.')
-                    PreservicaMassUpload('placeholder', spreadsheet_path=self.input_file).main(idx, str(last_ref), str(upload_type))
+                    PreservicaMassUpload('placeholder', spreadsheet_path=self.input_file).process_upload_row(idx, str(last_ref), str(upload_type))
                 else:
-                    last_ref = PreservicaMassUpload('placeholder',spreadsheet_path=self.input_file).main(idx, ref, str(upload_type))
+                    last_ref = PreservicaMassUpload('placeholder',spreadsheet_path=self.input_file).process_upload_row(idx, ref, str(upload_type))
         except KeyboardInterrupt:
             logger.warning('Process interrupted by user during upload mode, exiting...')
             if self.disable_continue is False:
