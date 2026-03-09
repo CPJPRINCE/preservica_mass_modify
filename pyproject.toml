@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "preservica_mass_modify"
-version = "1.0.1"
+version = "1.1.0"
 authors = [
     {name="Christopher Prince", email="c.pj.prince@gmail.com"}
     ]
@@ -29,3 +29,8 @@ testpaths = ["tests"]
 where = ['.']
 include = ['preservica_modify']
 exclude = []
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
