@@ -1,6 +1,10 @@
 """
-Upload Mode still needs work and testing...
+Upload Mode for Preservica Mass Modify
 
+Still needs work and testing...
+
+Author: Christopher Prince
+license: Apache License 2.0"
 """
 
 import time, os, sys
@@ -257,9 +261,10 @@ class PreservicaMassUpload(PreservicaMassMod):
             raise SystemExit()
     """
 
-    def main(self, idx: Hashable, upload_folder: str, doc_type: str):
+    def process_upload_row(self, idx: Hashable, upload_folder: str, doc_type: str):
         """
         Testing do not use!
+        Main processing function for upload mode.
         """
         time.sleep(self.TIMEOUT)
         try:

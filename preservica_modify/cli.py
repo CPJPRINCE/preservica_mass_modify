@@ -1,8 +1,6 @@
 
 """
-Preservica Mass Modification tool.
-
-CLI for Preservica Mass Modification.
+CLI for Preservica Mass Modify.
 
 Author: Christopher Prince
 license: Apache License 2.0"
