@@ -1,5 +1,5 @@
 """
-Preservica Mass Modification tool.
+Preservica Mass Modify Tool
 
 This tool is utilised to modify existing data on Preservica through the use of spreadsheets.
 Allows for modification of XIP and XML data.
@@ -11,6 +11,7 @@ license: Apache License 2.0"
 
 from pyPreservica import EntityAPI, RetentionAPI, UploadAPI, WorkflowAPI, AdminAPI, Entity, EntityType
 import pandas as pd
+from pandas.api.types import is_datetime64_dtype
 from lxml import etree
 from datetime import datetime
 import os, re
@@ -140,8 +141,7 @@ class PreservicaMassMod:
         if not self.use_keyring:
             return None
         if keyring is None:
-            log_msg = "keyring package is not installed. Install with: pip install keyring"
-            raise RuntimeError(log_msg)
+            raise RuntimeError("keyring package is not installed. Install with: pip install keyring")
         if not username or not self.server:
             return None
         try:
@@ -154,8 +154,8 @@ class PreservicaMassMod:
         if not self.save_password_to_keyring:
             return
         if keyring is None:
-            log_msg = "keyring package is not installed. Install with: pip install keyring"
-            raise RuntimeError(log_msg)
+            logger.error("keyring package is not installed. Install with: pip install keyring")
+            raise RuntimeError("keyring package is not installed. Install with: pip install keyring")
         if not self.username or not self.server:
             return
         try:
@@ -182,9 +182,8 @@ class PreservicaMassMod:
             def _check_password(username: str, password: Optional[str]):
 
                 if None in (username, self.server):
-                    log_msg = 'A Username or Server has not been provided... Please try again...'
-                    logger.error(log_msg)
-                    raise ValueError(log_msg)
+                    logger.error('A Username or Server has not been provided... Please try again...')
+                    raise ValueError('A Username or Server has not been provided... Please try again...')
 
                 if password is None and self.save_password_to_keyring is False:
                     password = self._get_password_from_keyring(username)
@@ -197,9 +196,8 @@ class PreservicaMassMod:
                 if password is not None:
                     return password
                 else:
-                    log_msg = 'Password not provided and could not be retrieved from keyring. Please try again...'
-                    logger.error(log_msg)
-                    raise ValueError(log_msg)
+                    logger.error('Password not provided and could not be retrieved from keyring. Please try again...')
+                    raise ValueError('Password not provided and could not be retrieved from keyring. Please try again...')
             
             if self.username:
                 self.password = _check_password(self.username, self.password)
@@ -214,8 +212,7 @@ class PreservicaMassMod:
             self.admin = AdminAPI(username=str(self.username), password=str(self.password),server=str(self.server), tenant=str(self.tenant) if self.tenant else None)
             logger.info(f'Successfully logged into Preservica Server {self.server}, as user {self.username}')
         except Exception:
-            log_msg = 'Failed to login to Preservica...'
-            logger.exception(log_msg)
+            logger.exception('Failed to login to Preservica')
             raise
 
     def test_login(self):
@@ -226,8 +223,7 @@ class PreservicaMassMod:
             self.login_preservica()
             logger.info(f'Login successful: {self.server} as {self.username}')
         except Exception:
-            log_msg = 'Login failed'
-            logger.exception(log_msg)
+            logger.exception('Login failed')
             raise
 
     def _save_continue_token(self, token_file: str, token: Optional[int]) -> None:
@@ -237,9 +233,14 @@ class PreservicaMassMod:
                 with open(token_file, 'w') as f:
                     f.write(str(token))
                 logger.info(f'Continue token saved to {token_file}')
+        except FileNotFoundError:
+            logger.exception(f'Continue token file not found: {token_file}, unable to save continue token...')
+            raise
+        except PermissionError as e:
+            logger.exception(f'Permission denied when saving continue token to file {token_file}: {e}')
+            raise
         except Exception as e:
-            log_msg = f'Failed to save continue token to file {token_file}: {e}'
-            logger.exception(log_msg)
+            logger.exception(f'Failed to save continue token to file {token_file}: {e}')
             raise
 
     def _load_continue_token(self, token_file: str) -> Optional[int]:
@@ -253,17 +254,14 @@ class PreservicaMassMod:
                         logger.info(f'Continue token loaded from {token_file}, processing from index: {token}')
                         return token
                     else:
-                        log_msg = f'Invalid continue token value in {token_file}: {token_str}'
-                        logger.error(log_msg)
-                        raise ValueError(log_msg)
-        except FileNotFoundError as e:
-            log_msg = f'Continue token file not found: {token_file}, starting from beginning...'
-            logger.error(log_msg)
+                        logger.warning(f'Invalid continue token value in {token_file}: {token_str}')
+                        raise ValueError(f'Invalid continue token value in {token_file}: {token_str}')
+        except PermissionError:
+            logger.warning(f'Permission denied when loading token {token_file}, starting from beggining')
             return 0
-        except Exception as e:
-            log_msg = f'Invalid continue token value in {token_file}, starting from beginning...'
-            logger.exception(log_msg)
-            raise
+        except Exception:
+            logger.warning(f'Invalid continue token value in {token_file}, starting from beginning...')
+            return 0
                         
     def _remove_continue_token(self, token_file: str) -> None:
         token_file = token_file + "_continue.txt"
@@ -298,7 +296,6 @@ class PreservicaMassMod:
         from .cli import fmthelper
 
         input_fmt = fmthelper(os.path.splitext(self.input_file)[-1].replace('.',''))
-        
         logger.info(f'Initializing dataframe from input file: {self.input_file} with detected format: {input_fmt}. May take time to load.')
 
         if input_fmt.endswith("xlsx"):
@@ -312,9 +309,8 @@ class PreservicaMassMod:
         elif input_fmt.endswith("xml"):
             self.df: pd.DataFrame = pd.read_xml(self.input_file)
         else:
-            log_msg = "Unsupported file type for input. Please use .xlsx, .csv, .json or .xml"
-            logger.error(log_msg)
-            raise ValueError(log_msg)
+            logger.error("Unsupported file type for input. Please use .xlsx, .csv, .json or .xml")
+            raise ValueError("Unsupported file type for input. Please use .xlsx, .csv, .json or .xml")
        
         self.column_headers = list(self.df.columns.values)
         if self.column_sensistivity is True:
@@ -340,9 +336,8 @@ class PreservicaMassMod:
                         elem = etree.QName(elem)
                         elem_lnpath = elem_path.replace(f"{{{elem.namespace}}}", root_element_ln + ":")
                         print(elem_lnpath)
-        except Exception as e:
-            log_msg = f'Failed to print Descriptive metadta files, ensure correct path {e}'
-            logger.exception(log_msg)
+        except Exception:
+            logger.exception('Failed to print Descriptive metadta files, ensure correct path')
             raise
 
     def print_remote_xmls(self) -> None:
@@ -366,9 +361,8 @@ class PreservicaMassMod:
                         elem = etree.QName(elem)
                         elem_lnpath = elem_path.replace(f"{{{elem.namespace}}}", root_element_ln + ":")
                         print(elem_lnpath)
-        except Exception as e:
-            log_msg = f'Failed to print Descriptive metadta files, ensure correct path {e}'
-            logger.exception(log_msg)
+        except Exception:
+            logger.exception('Failed to print Descriptive metadta files, ensure correct path')
             raise
 
     def convert_local_xmls(self, output_format: str) -> None:
@@ -401,9 +395,8 @@ class PreservicaMassMod:
                     export_json(pd.DataFrame([xml_dict]), file.name.replace('.xml','.json'), orient='records')
                 else:
                     export_xl(xml_df, file.name.replace('.xml','.xlsx'))
-        except Exception as e:
-            log_msg = f'Failed to print Descriptive metadta files, ensure correct path {e}'
-            logger.exception(log_msg)
+        except Exception:
+            logger.exception('Failed to print Descriptive metadta files, ensure correct path')
             raise
 
     def convert_remote_xmls(self, output_format: str) -> None:
@@ -444,9 +437,8 @@ class PreservicaMassMod:
                     export_json(pd.DataFrame([xml_dict]), xml_name + '.json', orient='records')
                 else:
                     export_xl(xml_df, xml_name + '.xlsx')
-        except Exception as e:
-            log_msg = f'Failed to print Descriptive metadta files, ensure correct path {e}'
-            logger.exception(log_msg)
+        except Exception:
+            logger.exception('Failed to print Descriptive metadta files, ensure correct path')
             raise
 
     def get_retentions(self) -> list[dict]:
@@ -519,9 +511,8 @@ class PreservicaMassMod:
         """
 
         if getattr(self, 'df', None) is None:
-            log_msg = 'Dataframe not initialised, cannot perform lookup'
-            logger.error(log_msg)
-            raise RuntimeError(log_msg)
+            logger.error('Dataframe not initialised, cannot perform lookup')
+            raise RuntimeError('Dataframe not initialised, cannot perform lookup')
         try:
             if self.title_flag:
                 title = check_nan(self._cell(idx, self.TITLE_FIELD))
@@ -542,16 +533,15 @@ class PreservicaMassMod:
                 security = None
             return title, description, security
         except KeyError as e:
-            log_msg = f'Key Error XIP Lookup, missing Column: {e} please ensure column header\'s are an exact match...'
-            logger.exception(log_msg)
-            raise KeyError(log_msg) from e
+            message = f'Key Error XIP Lookup, missing Column: {e} please ensure column header\'s are an exact match...'
+            logger.exception(message)
+            raise KeyError(message) from e
         except IndexError as e:
             logger.warning(f"Index Error for XIP Lookup: {e} it is likely you have removed or added a file/folder to the directory"
                          "after generating the spreadsheet. An opex will still be generated but with no identifiers. To ensure identifiers match up please ensure match up...")
             return None, None, None
         except Exception:
-            log_msg = f'Retention XIP failed: for {idx}'
-            logger.exception(log_msg)
+            logger.exception(f'Retention XIP failed: for {idx}')
             raise
     
     def ident_lookup(self, idx: Hashable, default_key: Optional[str] = None) -> Optional[Dict[str, Optional[str]]]:
@@ -586,15 +576,14 @@ class PreservicaMassMod:
                 ident_dict = None
             return ident_dict
         except KeyError as e:
-            log_msg = f'Key Error for Identifier Lookup, missing Column: {e} please ensure column header\'s are an exact match...'
-            logger.exception(log_msg)
-            raise KeyError(log_msg) from e
+            message = f'Key Error for Identifier Lookup, missing Column: {e} please ensure column header\'s are an exact match...'
+            logger.exception(message)
+            raise KeyError(message) from e
         except IndexError as e:
             logger.warning(f"Index Error for Identifier Lookup: {e} it is likely you have removed or added a file/folder to the directory"
                          "after generating the spreadsheet. An opex will still be generated but with no identifiers. To ensure identifiers match up please ensure match up...")
         except Exception:
-            log_msg = f'Identifier Lookup failed: for {idx}'
-            logger.exception(log_msg)
+            logger.exception(f'Identifier Lookup failed: for {idx}')
             raise
         
     def retention_lookup(self, idx: Hashable):
@@ -614,15 +603,14 @@ class PreservicaMassMod:
             logger.debug(f'Retention Lookup for {idx}: {retention_policy}')    
             return retention_policy
         except KeyError as e:
-            log_msg = f'Key Error Retention Lookup, missing Column: {e} please ensure column header\'s are an exact match...'
-            logger.exception(log_msg)
-            raise KeyError(log_msg) from e
+            message = f'Key Error Retention Lookup, missing Column: {e} please ensure column header\'s are an exact match...'
+            logger.exception(message)
+            raise KeyError(message) from e
         except IndexError as e:
             logger.warning(f"Index Error for Retention Lookup: {e} it is likely you have removed or added a file/folder to the directory"
                          "after generating the spreadsheet. An opex will still be generated but with no identifiers. To ensure identifiers match up please ensure match up...")
         except Exception:
-            log_msg = f'Retention Lookup failed: for {idx}'
-            logger.exception(log_msg)
+            logger.exception(f'Retention Lookup failed: for {idx}')
             raise
 
     def pax_lookup(self, idx: Hashable) -> Optional[tuple[Optional[str], Optional[list], Optional[list]]]:
@@ -643,15 +631,14 @@ class PreservicaMassMod:
             logger.debug(f'PAX Access List for {idx}: {access_list}')
             return pax_path, pres_list, access_list
         except KeyError as e:
-            log_msg = f'Key Error for Pax Lookup, missing Column: {e} please ensure column header\'s are an exact match...'
-            logger.exception(log_msg)
-            raise KeyError(log_msg) from e
+            message = f'Key Error for Pax Lookup, missing Column: {e} please ensure column header\'s are an exact match...'
+            logger.exception(message)
+            raise KeyError(message) from e
         except IndexError as e:
             logger.warning(f"Index Error for Pax Lookup: {e} it is likely you have removed or added a file/folder to the directory"
                          "after generating the spreadsheet. An opex will still be generated but with no identifiers. To ensure identifiers match up please ensure match up...")
         except Exception:
-            log_msg = f'Pax Lookup failed: for {idx}'
-            logger.exception(log_msg)
+            logger.exception(f'Pax Lookup failed: for {idx}')
             raise
 
     def delete_lookup(self, idx: Hashable):
@@ -667,14 +654,13 @@ class PreservicaMassMod:
         try:
             return check_bool(self._cell(idx, self.DELETE_FIELD))    
         except Exception:
-            log_msg = 'Failed to lookup delete flag'
-            logger.exception(log_msg)
+            logger.exception('Failed to lookup delete flag')
             raise
 
     def init_generate_descriptive_metadata(self) -> List[Dict[str, Any]]:
         """
-        Initiation for the generate_descriptive_metadata function. Seperated to avoid unecessary repetition.
-        First takes xmls files in metadata_dir, generates a list of dicts of the elements in XML file. Then compares the Column headers in the spreadsheet against the XML's in the Metadata Directory.
+        Initialises the descriptive metadata by parsing the XML files in the metadata directory, generating a list of the elements and their namespaces, and comparing them against the column headers in the spreadsheet to filter out non-matching data.
+        The resulting list of matching elements is stored in self.xml_files for use in generating the descriptive metadata in the Opex manifest.
         """
         try:
             self.xml_files: List[Dict[str, Any]] = []
@@ -682,16 +668,18 @@ class PreservicaMassMod:
                 list_xml: List[Dict[str,Any]] = []
                 if file.name.endswith('.xml'):
                     path = os.path.join(self.metadata_dir, file.name)
+                    """
+                    Generates info on the elements of the XML Files placed in the Metadata directory.
+                    Composed as a list of dictionaries.
+                    """
                     try:
                         xml_file = etree.parse(path)
                     except etree.XMLSyntaxError as e:
-                        log_msg = f'XML Syntax Error while parsing {file.name}: {e}'
-                        logger.exception(log_msg)
-                        raise etree.XMLSyntaxError(log_msg) from e
+                        logger.exception(f'XML Syntax Error while parsing {file.name}: {e}')
+                        raise
                     except FileNotFoundError as e:
-                        log_msg = f'File not found while parsing {file.name}: {e}'
-                        logger.exception(log_msg)
-                        raise FileNotFoundError(log_msg) from e
+                        logger.exception(f'XML file not found {file.name}: {e}')
+                        raise
                     root_element = etree.QName(xml_file.find('.'))
                     root_element_ln = root_element.localname
                     root_element_ns = root_element.namespace
@@ -703,27 +691,33 @@ class PreservicaMassMod:
                         elem_ns = elem.namespace
                         elem_lnpath = elem_path.replace(f"{{{elem_ns}}}", root_element_ln + ":")
                         elements_list.append({"Name": root_element_ln + ":" + elem_ln, "XName": f"{{{elem_ns}}}{elem_ln}", "Namespace": elem_ns, "Path": elem_lnpath})
+                    
+                    """
+                    Compares the column headers in the Spreadsheet against the headers. Filters out non-matching data.
+                    """
                     try:
                         for elem_dict in elements_list:
                             if elem_dict.get('Name') in self.column_headers or elem_dict.get('Path') in self.column_headers:
                                 list_xml.append({"Name": elem_dict.get('Name'), "XName": elem_dict.get('XName'), "Namespace": elem_dict.get('Namespace'), "Path": elem_dict.get('Path')})
+                    except KeyError as e:
+                        logger.exception(f'Key Error comparing XML elements to column headers for file {file.name}: {e}')
+                        raise
+                    except IndexError as e:
+                        logger.warning(f'Index Error comparing XML elements to column headers for file {file.name}: {e}')
                     except Exception:
-                        log_msg = f'Error comparing XML elements to column headers for file {file.name}'
-                        logger.exception(log_msg)
+                        logger.exception(f'Error comparing XML elements to column headers for file {file.name}')
                         raise
                 if len(list_xml) > 0:
                     self.xml_files.append({'data': list_xml, 'localname': root_element_ln, 'localns': root_element_ns, 'xmlfile': path})
                     logger.info(f'Matching columns found in spreadsheet for XML file: {file.name}, added to metadata generation list.')
                 else:
-                    logger.warning(f'No matching columns found in spreadsheet for XML file: {file.name}, skipping this file for metadata generation.')
+                    logger.debug(f'No matching columns found in spreadsheet for XML file: {file.name}, skipping this file for metadata generation.')
             return self.xml_files
-        except FileNotFoundError as e:
-            log_msg = f'Metadata directory not found: {e}'
-            logger.exception(log_msg)
-            raise FileNotFoundError(log_msg) from e
+        except FileNotFoundError:
+            logger.exception(f'Metadata directory not found at path: {self.metadata_dir}')
+            raise
         except Exception:
-            log_msg = 'Failed to initialize descriptive metadata generation'
-            logger.exception(log_msg)
+            logger.exception('Failed to intialise XML Metadata')
             raise
     
     def generate_descriptive_metadata(self, idx: Hashable, xml_files: List[Dict[str, Any]]) -> Optional[List[Dict[str, Union[etree._ElementTree, list[Optional[str]]]]]]:
@@ -732,6 +726,8 @@ class PreservicaMassMod:
 
         :param idx: Pandas Index to lookup
         :param xml_file: Dictionary of XML files created as part of init 
+        
+        This version returns a list of dictionaries containing the XML tree and the XNames for each file, which can be used in the xml_merge function to merge the generated metadata with the original XML template. This allows for more flexible handling of multiple XML files and ensures that all relevant metadata is included in the final Opex manifest.
         """
         try:
             xml_list = []
@@ -758,7 +754,7 @@ class PreservicaMassMod:
                         path = elem_dict.get('Path')
                         elmns = elem_dict.get('Namespace')
                         if not isinstance(name, str) or not isinstance(path, str) or not isinstance(elmns, str):
-                            logger.warning(f'Missing Name or Path for element {elem_dict} in file {xml_file.get("xmlfile")}, skipping this element.')
+                            logger.warning(f'Missing Name or Path or Namespace for element {elem_dict} in file {xml_file.get("xmlfile")}, skipping this element.')
                             continue
                         if self.metadata_flag in {'exact'}:
                             val = check_nan(self._cell(idx, path))
@@ -767,7 +763,7 @@ class PreservicaMassMod:
                         if pd.isnull(val) or val is None:
                             continue
                         else:
-                            if pd.api.types.is_datetime64_dtype(val):
+                            if is_datetime64_dtype(val):
                                 val = pd.to_datetime(val)
                                 val = datetime.strftime(val, "%Y-%m-%dT%H:%M:%S.000Z")
                         if self.metadata_flag in {'exact'}:
@@ -787,16 +783,17 @@ class PreservicaMassMod:
                     xml_list.append({localns: xml_new, 'xnames': xnames})
             return xml_list
         except KeyError as e:
-            log_msg = f'Key Error, missing Column: {e} please ensure column header\'s are an exact match...'
-            logger.exception(log_msg)
-            raise KeyError(log_msg)
+            logger.exception(f'Key Error in XML Lookup: {e}' \
+            '\n Please ensure column header\'s are an exact match.')
+            raise
         except IndexError as e:
-            logger.warning(f"Index Error: {e} it is likely you have removed or added a file/folder to the directory" \
-                "after generating the spreadsheet. An opex will still be generated but with no xml metadata." \
-                "To ensure metadata match up please ensure match up...")
+            logger.warning(f'Index Error: {e}' \
+            '\nIt is likely you have removed or added a file/folder to the directory' \
+            'after generating your input spreadsheetree. An opex will still be generated but with no xml metadata.' \
+            '\nTo ensure metadata match up please regenerate the spreadsheetree.')
+            return None
         except Exception:
-            log_msg = f'Error generating descriptive metadata for {idx, path}'
-            logger.exception(log_msg)
+            logger.exception('General Error in XML Lookup')
             raise
 
     def xip_update(self, ent: Entity, title: Optional[str] = None, description: Optional[str] = None, security: Optional[str] = None):
@@ -816,8 +813,7 @@ class PreservicaMassMod:
             if any([title,description]):
                 self.entity.save(ent)
         except Exception:
-            log_msg = 'Error updating XIP metadata'
-            logger.exception(log_msg)
+            logger.exception('Error updating XIP metadata')
             raise
     
     def ident_update(self, ent: Entity, ident_dict: Union[dict,None]):
@@ -848,8 +844,7 @@ class PreservicaMassMod:
                         else:
                             pass
         except Exception:
-            log_msg = 'Error updating identifiers'
-            logger.exception(log_msg)
+            logger.exception('Error updating identifiers')
             raise
                     
     def retention_update(self, ent: Entity, retention_policy: Optional[str] = None):
@@ -863,9 +858,8 @@ class PreservicaMassMod:
                     policy = policies[0].get('Reference', None)
                     policy_name = policies[0].get('Name', None)
                     if policy is None:
-                        log_msg = f'Retention policy reference not found for name: {retention_policy}'
-                        logger.error(log_msg)
-                        raise LookupError(log_msg)
+                        logger.error(f'Retention policy reference not found for name: {retention_policy}')
+                        raise LookupError(f'Retention policy reference not found for name: {retention_policy}')
                     if any(assignments):
                         for ass in assignments:
                             logger.info(f"Updating {ent.reference} Removing retention policy: {ass.policy_reference}")
@@ -875,9 +869,8 @@ class PreservicaMassMod:
                     if self.dummy_flag is False:
                         self.retention.add_assignments(ent,self.retention.policy(policy))
                 elif len(policies) == 0:
-                    log_msg = f'Retention policy not found for name: {retention_policy}'
-                    logger.error(log_msg)
-                    raise LookupError(log_msg)
+                    logger.error(f'Retention policy not found for name: {retention_policy}')
+                    raise LookupError(f'Retention policy not found for name: {retention_policy}')
 
             elif retention_policy is None and self.blank_override is True:
                 assignments = self.retention.assignments(ent)
@@ -889,8 +882,7 @@ class PreservicaMassMod:
             else:
                 pass                    
         except Exception:
-            log_msg = f'Error updating retention: {ent.reference}'
-            logger.exception(log_msg)
+            logger.exception(f'Error updating retention: {ent.reference}')
             raise
                     
     def xml_update(self, ent: Entity, ns: str, xml_new: etree._ElementTree):
@@ -923,8 +915,7 @@ class PreservicaMassMod:
                 if self.dummy_flag is False:
                     self.entity.update_metadata(ent, ns, xml_to_upload.decode('utf-8'))
         except Exception:
-            log_msg = 'Error updating XML metadata'
-            logger.exception(log_msg)
+            logger.exception('Error updating XML metadata')
             raise
 
     def move_update(self, idx: int, ent: Entity):
@@ -943,9 +934,8 @@ class PreservicaMassMod:
                     if self.dummy_flag is False:
                         self.entity.move_async(entity=ent, dest_folder=dest_folder)
                 else:
-                    log_msg = f'Reference: {ent.reference} in "Move To" is formatted incorrectly: {dest}'
-                    logger.error(log_msg)
-                    raise ValueError(log_msg)
+                    logger.error(f'Reference: {ent.reference} in "Move To" is formatted incorrectly: {dest}')
+                    raise ValueError(f'Reference: {ent.reference} in "Move To" is formatted incorrectly: {dest}')
 
     def delete_update(self, idx: Hashable, ent: Entity):
         """
@@ -969,18 +959,16 @@ class PreservicaMassMod:
                             self.entity.delete_folder(self.entity.folder(ent.reference),"Deleted by Preservica Mass Modify","Deleted by Preservica Mass Modify", self.credentials_file,  self.manager_username, self.manager_password)
                         return True
                 if delete_conf is True:
-                    log_msg = 'Delete requested but no manager username or credentials file provided.'
-                    logger.error(log_msg)
-                    raise PermissionError(log_msg)
+                    logger.error('Delete requested but no manager username or credentials file provided.')
+                    raise PermissionError('Delete requested but no manager username or credentials file provided.')
             else:
                 return False
         except KeyError as e:
-            log_msg = f'Failed to delete entity due to missing key: {e}'
-            logger.exception(log_msg)
-            raise KeyError(log_msg) from e
+            message = f'Failed to delete entity due to missing key: {e}'
+            logger.exception(message)
+            raise KeyError(message) from e
         except Exception:
-            log_msg = 'Failed to delete entity'
-            logger.exception(log_msg)
+            logger.exception('Failed to delete entity')
             raise
 
     def _process_descent(self,idx: int, descendant_ent: Entity, entity_type: EntityType):
@@ -988,13 +976,11 @@ class PreservicaMassMod:
         Process function for descendants, seperated to avoid repetition.
         """
         if self.descendants_flag is None:
-            log_msg = 'Descendants flag not set, cannot process descendants. Ensure you have selected at least 1 option for descendants processing.'
-            logger.error(log_msg)
-            raise ValueError(log_msg)
+            logger.error('Descendants flag not set, cannot process descendants. Ensure you have selected at least 1 option for descendants processing.')
+            raise ValueError('Descendants flag not set, cannot process descendants. Ensure you have selected at least 1 option for descendants processing.')
         if not any(x in ["include-xml","include-retention","include-description","include-security","include-title","include-identifiers"] for x in self.descendants_flag):
-            log_msg = 'No data to process. Ensure you select 1 option of data to edit'
-            logger.error(log_msg)
-            raise ValueError(log_msg)
+            logger.error('No data to process. Ensure you select 1 option of data to edit')
+            raise ValueError('No data to process. Ensure you select 1 option of data to edit')
         if any(x in ["include-xml","include-all"] for x in self.descendants_flag) and self.metadata_flag is not None:
             xmls = self.generate_descriptive_metadata(idx, self.xml_files)
             if xmls is not None:                                
@@ -1027,8 +1013,7 @@ class PreservicaMassMod:
             if ent.entity_type == EntityType.FOLDER:
                 for ent_dir in self.entity.all_descendants(ent):
                     if ent_dir.entity_type is None:
-                        log_msg = f'No descendants found for entity: {ent.reference}'
-                        logger.info(log_msg)
+                        logger.info(f'No descendants found for entity: {ent.reference}')
                         continue
                     logger.info(f"Processing Descendant: {ent_dir.reference}")
                     descendant_ent = self.entity.entity(ent_dir.entity_type, ent_dir.reference)
@@ -1041,9 +1026,8 @@ class PreservicaMassMod:
         try:
             from preservica_modify.pres_upload import PreservicaMassUpload
         except ImportError:
-            log_msg = 'Upload mode enabled but PreservicaMassUpload class not found. Please ensure you have the pres_upload module in your project and it contains the PreservicaMassUpload class.'
-            logger.error(log_msg)
-            raise ImportError(log_msg)
+            logger.exception('Upload mode enabled but PreservicaMassUpload class not found. Please ensure you have the pres_upload module in your project and it contains the PreservicaMassUpload class.')
+            raise
         try:
             if self.UPLOAD_TYPE in self.column_headers and self.DOCUMENT_TYPE in self.column_headers:
                 logger.warning(f'Both Document Type and Upload Type columns found, defaulting to Upload Type column for reference. Using {self.UPLOAD_TYPE} as basis.')
@@ -1055,16 +1039,14 @@ class PreservicaMassMod:
                 logger.debug(f'Document Type column found, using {self.DOCUMENT_TYPE} as basis for upload mode.')
                 data_dict = self.df[[self.ENTITY_REF, self.DOCUMENT_TYPE]].to_dict(orient='index')
             else:
-                log_msg = 'Upload mode enabled but no Document Type or Upload Type column found. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.'
-                logger.error(log_msg)
-                raise ValueError(log_msg)
+                logger.error('Upload mode enabled but no Document Type or Upload Type column found. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
+                raise ValueError('Upload mode enabled but no Document Type or Upload Type column found. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
         except KeyError as e:
-            log_msg = f'Key Error: {e} Please ensure that the "Document Type" and "Upload Type" columns are in your spreadsheet when using upload mode.'
-            logger.exception(log_msg)
-            raise KeyError(log_msg) from e
+            message = f'Key Error: {e} Please ensure that the "Document Type" and "Upload Type" columns are in your spreadsheet when using upload mode.'
+            logger.exception(message)
+            raise KeyError(message) from e
         except Exception:
-            log_msg = 'Error setting up upload mode'
-            logger.exception(log_msg)
+            logger.exception('Error setting up upload mode')
             raise
 
         try:
@@ -1076,8 +1058,7 @@ class PreservicaMassMod:
                 if reference_dict is not None:
                     ref = check_nan(reference_dict.get(self.ENTITY_REF))
                 else:
-                    log_msg = f'No data found for Index: {idx}, skipping to next row.'
-                    logger.error(log_msg)
+                    logger.error(f'No data found for Index: {idx}, skipping to next row.')
                     continue
                 if self.UPLOAD_TYPE in self.column_headers:
                     upload_type = reference_dict.get(self.UPLOAD_TYPE)
@@ -1086,9 +1067,8 @@ class PreservicaMassMod:
                 #Ref is the upload folder reference.
                 if ref is None or ref == "Use Parent" and upload_type is not None:
                     if last_ref is None:
-                        log_msg = 'No previous reference found. Please provide a reference in at least the first row.'
-                        logger.error(log_msg)
-                        raise ValueError(log_msg)
+                        logger.error('No previous reference found. Please provide a reference in at least the first row.')
+                        raise ValueError('No previous reference found. Please provide a reference in at least the first row.')
                     PreservicaMassUpload('placeholder', spreadsheet_path=self.input_file).main(idx, str(last_ref), str(upload_type))
                 else:
                     last_ref = PreservicaMassUpload('placeholder',spreadsheet_path=self.input_file).main(idx, ref, str(upload_type))
@@ -1098,8 +1078,7 @@ class PreservicaMassMod:
                 self._save_continue_token(self.input_file, idx)
             raise KeyboardInterrupt('Process interrupted by user, exiting...') from None
         except Exception:
-            log_msg = 'Error in upload mode'
-            logger.exception(log_msg)
+            logger.exception('Error running upload mode')
             raise
 
 
@@ -1109,9 +1088,8 @@ class PreservicaMassMod:
         else:
             start_idx = self._load_continue_token(self.input_file)
             if not isinstance(start_idx, int):
-                log_msg = f'Invalid continue token: {start_idx}, must be an integer index. Please ensure the continue token file contains a valid integer index.'
-                logger.error(log_msg)
-                raise ValueError(log_msg)
+                logger.error(f'Invalid continue token: {start_idx}, must be an integer index. Please ensure the continue token file contains a valid integer index.')
+                raise ValueError(f'Invalid continue token: {start_idx}, must be an integer index. Please ensure the continue token file contains a valid integer index.')
             keys = list(data_dict.keys())
             if start_idx in keys:
                 start_pos = keys.index(start_idx)
@@ -1138,9 +1116,8 @@ class PreservicaMassMod:
                     if doc_type is None:
                         logger.warning(f'No document type found for index: {idx}, attempting to retrieve entity without document type.')
                 else:
-                    log_msg = f'No data found for index: {idx}'
-                    logger.error(log_msg)
-                    raise ValueError(log_msg)
+                    logger.error(f'No data found for index: {idx}')
+                    raise ValueError(f'No data found for index: {idx}')
                 logger.info(f"Processing Row Index: {idx}, Reference: {ref}")
                 ent = self._process_fetch_ent(ref, doc_type)
                 if ent is not None:
@@ -1149,14 +1126,12 @@ class PreservicaMassMod:
                     logger.warning(f'Entity not found for reference {ref}, skipping to next row.')
                     continue
         except KeyboardInterrupt:
-            log_msg = 'Process interrupted by user, exiting...'
-            logger.warning(log_msg)
+            logger.warning('Process interrupted by user, exiting...')
             if self.disable_continue is False:
                 self._save_continue_token(self.input_file, idx)
-            raise KeyboardInterrupt(log_msg)
+            raise KeyboardInterrupt('Process interrupted by user, exiting...')
         except Exception:
-            log_msg = f'Error processing row with index: {idx}.'
-            logger.exception(log_msg)
+            logger.exception('Error processing rows.')
             raise
 
      # Setup for Local Definition of Entity?
@@ -1168,8 +1143,7 @@ class PreservicaMassMod:
                 elif doc_type == "IO":
                     ent = self.entity.asset(ref)
                 else:
-                    log_msg = f'Unsupported document type for reference {ref}: {doc_type}'
-                    raise ValueError(log_msg)
+                    raise ValueError(f'Unsupported document type for reference {ref}: {doc_type}')
                 return ent
             else:
                 #This is a lazy lookup solution to the issue of not being able to determine if the entity is a folder or asset.
@@ -1179,8 +1153,7 @@ class PreservicaMassMod:
                     ent = self.entity.folder(ref)
                 return ent
         except Exception as e:
-            log_msg = f'Error retrieving entity with reference {ref}: {e}, skipping to next row.'
-            logger.warning(log_msg)
+            logger.warning(f'Error retrieving entity with reference {ref}: {e}, skipping to next row.')
             return None
 
     # Instead of using lookups, can reference_dict be used directly?
@@ -1202,13 +1175,11 @@ class PreservicaMassMod:
                         self.xnames = [x for x in rawxnames if isinstance(x, str)]
                     ns = list(x.keys())[0]
                     if not isinstance(ns, str):
-                        log_msg = f'Invalid namespace retrieved for index {idx}, expected string but got {type(ns)}. Skipping XML update for this file.'
-                        logger.warning(log_msg)
+                        logger.warning(f'Invalid namespace retrieved for index {idx}, expected string but got {type(ns)}. Skipping XML update for this file.')
                         continue
                     xml_new = x.get(ns)
                     if not isinstance(xml_new, etree._ElementTree):
-                        log_msg = f'Invalid XML data retrieved for index {idx}, expected etree._ElementTree but got {type(xml_new)}. Skipping XML update for this file.'
-                        logger.warning(log_msg)
+                        logger.warning(f'Invalid XML data retrieved for index {idx}, expected etree._ElementTree but got {type(xml_new)}. Skipping XML update for this file.')
                         continue
                     self.xml_update(ent, ns, xml_new)
         if ent.entity_type == EntityType.ASSET and self.retention_flag is True:
@@ -1240,14 +1211,11 @@ class PreservicaMassMod:
             self._remove_continue_token(self.input_file)
             logger.info('Process completed.')
         except KeyError as e:
-            log_msg = f'Key Error: {e}.'
-            logger.exception(log_msg)
+            logger.exception(f'Key Error: {e}.')
             raise
         except ValueError as e:
-            log_msg = f'Value Error: {e}.'
-            logger.exception(log_msg)
+            logger.exception(f'Value Error: {e}.')
             raise
         except Exception:
-            log_msg = 'Error in main loop'
-            logger.exception(log_msg)
+            logger.exception('Error in main loop')
             raise
