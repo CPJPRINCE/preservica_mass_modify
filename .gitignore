@@ -4,3 +4,6 @@ dist/
 .venv/
 preservica_mass_modify.egg-info/
 preservica_modify.code-workspace
+localtests/
+build/
+*.pyc
