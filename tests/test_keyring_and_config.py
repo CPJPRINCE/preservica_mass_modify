@@ -129,7 +129,7 @@ def test_parse_config_applies_case_lowering_when_enabled(tmp_path: Path) -> None
     )
 
     instance = PreservicaMassMod.__new__(PreservicaMassMod)
-    instance.parse_config(str(options), column_sensistivity=True)
+    instance.parse_config(str(options), column_sensitivity=True)
 
     assert instance.TITLE_FIELD == "Title"
     assert instance.DESCRIPTION_FIELD == "Description"

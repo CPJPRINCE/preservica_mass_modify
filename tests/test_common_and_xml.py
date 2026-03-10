@@ -90,15 +90,11 @@ def test_save_load_and_remove_continue_token(tmp_path: Path) -> None:
     assert not (tmp_path / "input.csv_continue.txt").exists()
 
 
-def test_load_continue_token_invalid_value_raises(tmp_path: Path) -> None:
+def test_load_continue_token_invalid_value_returns_zero(tmp_path: Path) -> None:
     instance = make_instance()
     token_base = str(tmp_path / "bad.csv")
     token_file = tmp_path / "bad.csv_continue.txt"
     token_file.write_text("not-an-int", encoding="utf-8")
 
-    try:
-        instance._load_continue_token(token_base)
-    except Exception:
-        pass
-    else:
-        raise AssertionError("Expected exception for invalid continue token content")
+    result = instance._load_continue_token(token_base)
+    assert result == 0

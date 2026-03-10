@@ -38,9 +38,9 @@ def test_generate_descriptive_metadata_exact_updates_by_path(tmp_path: Path) -> 
                 {"Name": "dc:title", "Path": "dc:title", "Namespace": "urn:test", "XName": "{urn:test}title"},
                 {"Name": "dc:description", "Path": "dc:description", "Namespace": "urn:test", "XName": "{urn:test}description"},
             ],
-            "localname": "dc",
-            "localns": "urn:test",
-            "xmlfile": str(xml_file),
+            "local_name": "dc",
+            "local_ns": "urn:test",
+            "xml_file": str(xml_file),
         }
     ]
 
@@ -65,9 +65,9 @@ def test_generate_descriptive_metadata_flat_updates_by_name(tmp_path: Path) -> N
                 {"Name": "dc:title", "Path": "dc:title", "Namespace": "urn:test", "XName": "{urn:test}title"},
                 {"Name": "dc:description", "Path": "dc:description", "Namespace": "urn:test", "XName": "{urn:test}description"},
             ],
-            "localname": "dc",
-            "localns": "urn:test",
-            "xmlfile": str(xml_file),
+            "local_name": "dc",
+            "local_ns": "urn:test",
+            "xml_file": str(xml_file),
         }
     ]
 
@@ -93,9 +93,9 @@ def test_generate_descriptive_metadata_skips_invalid_elements(tmp_path: Path) ->
                 {"Name": None, "Path": "dc:title", "Namespace": "urn:test", "XName": "{urn:test}title"},
                 {"Name": "dc:title", "Path": "dc:title", "Namespace": "urn:test", "XName": "{urn:test}title"},
             ],
-            "localname": "dc",
-            "localns": "urn:test",
-            "xmlfile": str(xml_file),
+            "local_name": "dc",
+            "local_ns": "urn:test",
+            "xml_file": str(xml_file),
         }
     ]
 
