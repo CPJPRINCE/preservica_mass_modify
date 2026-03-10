@@ -9,6 +9,11 @@ authors = [
     {name="Christopher Prince", email="c.pj.prince@gmail.com"}
     ]
 description = "A Tool for enabling Mass modifications of Folders and Assets on Preservica through Spreadsheets"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICEN[CS]E*"]
+keywords = ["archiving","archives","digital archiving","modifications","Preservica"]
+
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: Apache Software License",
@@ -17,8 +22,8 @@ classifiers = [
     ]
 dependencies=["pypreservica","pandas","openpyxl","lxml","keyring"]
 [project.urls]
-Homepage = "https://github.com/CPJPRINCE/presvica_mass_modify"
-Issues = "https://github.com/CPJPRINCE/presvica_mass_modify/issues"
+Homepage = "https://github.com/CPJPRINCE/preservica_mass_modify"
+Issues = "https://github.com/CPJPRINCE/preservica_mass_modify/issues"
 [project.scripts]
 preservica_modify = "preservica_modify.cli:run_cli"
 
