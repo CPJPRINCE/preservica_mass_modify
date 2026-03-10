@@ -256,6 +256,9 @@ class PreservicaMassMod:
                     else:
                         logger.warning(f'Invalid continue token value in {token_file}: {token_str}')
                         raise ValueError(f'Invalid continue token value in {token_file}: {token_str}')
+            else:
+                logger.debug(f'No continue token file found at {token_file}, starting from beginning...')
+                return 0
         except PermissionError:
             logger.warning(f'Permission denied when loading token {token_file}, starting from beggining')
             return 0
