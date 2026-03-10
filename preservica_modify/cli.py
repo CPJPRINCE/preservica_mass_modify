@@ -236,7 +236,7 @@ def run_cli(args: argparse.Namespace) -> None:
                       use_keyring=args.use_keyring,
                       keyring_service=args.keyring_service,
                       save_password_to_keyring=args.save_password,
-                      column_sensistivity=args.column_sensitivity
+                      column_sensitivity=args.column_sensitivity
                       ).main()
   
 def server_helper(server_str: str) -> str:
