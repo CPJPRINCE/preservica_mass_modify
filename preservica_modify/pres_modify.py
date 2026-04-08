@@ -36,7 +36,7 @@ class PreservicaMassMod:
     """
     def __init__(self,
                  input_file: str,
-                 metadata_dir: str = os.path.join(os.getcwd(),"metadata"),
+                 metadata_dir: str = os.path.join(os.path.dirname(os.path.realpath(__file__)), "metadata"),
                  blank_override: bool = False,
                  upload_mode: bool = False,
                  metadata: Optional[str] = None,
@@ -246,7 +246,7 @@ class PreservicaMassMod:
     def _load_continue_token(self, token_file: str) -> Optional[int]:
         try:
             token_file = token_file + "_continue.txt"
-            if os.path.isfile(token_file):
+            if os.path.exists(token_file):
                 with open(token_file, 'r') as f:
                     token_str = f.read().strip()
                     token = int(token_str)
@@ -399,7 +399,7 @@ class PreservicaMassMod:
                 else:
                     export_xl(xml_df, file.name.replace('.xml','.xlsx'))
         except Exception:
-            logger.exception('Failed to print Descriptive metadta files, ensure correct path')
+            logger.exception('Failed to print Descriptive metadata files, ensure correct path')
             raise
 
     def convert_remote_xmls(self, output_format: str) -> None:
