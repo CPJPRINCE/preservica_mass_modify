@@ -118,6 +118,7 @@ jobs:
             --include-package=odf `
             --include-package=pandas `
             --include-package=preservica_modify `
+            --include-data-dir=preservica_modify/metadata=metadata `
             --include-data-dir=preservica_modify/options=options `
             --company-name="Preservica Mass Modify" `
             --product-name="Preservica Mass Modify" `
@@ -203,6 +204,7 @@ jobs:
             --nofollow-import-to=pandas.tests \
             --nofollow-import-to=pandas.conftest \
             --include-package=preservica_modify \
+            --include-data-dir=preservica_modify/metadata=metadata \
             --include-data-dir=preservica_modify/options=options \
             --assume-yes-for-downloads \
             --quiet \
@@ -267,6 +269,7 @@ jobs:
             --include-package=odf \
             --include-package=pandas \
             --include-package=preservica_modify \
+            --include-data-dir=preservica_modify/metadata=metadata \
             --include-data-dir=preservica_modify/options=options \
             --macos-create-app-bundle \
             --assume-yes-for-downloads \

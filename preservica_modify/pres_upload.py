@@ -22,7 +22,7 @@ class PreservicaMassUpload(PreservicaMassMod):
         super().__init__(config_path, spreadsheet_path)
         self.TIMEOUT = timeout
 
-    def pax_create(self, idx: int, title: str, description: Optional[str] = None, security: Optional[str] = None, ident_dict: Optional[dict] = None, xml_data: Optional[dict] = None) -> Optional[]:
+    def pax_create(self, idx: int, title: str, description: Optional[str] = None, security: Optional[str] = None, ident_dict: Optional[dict] = None, xml_data: Optional[dict] = None) -> Optional[complex_asset_package]:
         if idx is not None:
             pax_path, pax_preservation, pax_access = self.pax_lookup(idx)
         if pax_preservation is None:

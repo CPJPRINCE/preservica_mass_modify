@@ -8,7 +8,6 @@ Author: Christopher Prince
 license: Apache License 2.0"
 """
 
-
 from pyPreservica import EntityAPI, RetentionAPI, UploadAPI, WorkflowAPI, AdminAPI, Entity, EntityType
 import pandas as pd
 from pandas.api.types import is_datetime64_dtype
@@ -36,7 +35,7 @@ class PreservicaMassMod:
     """
     def __init__(self,
                  input_file: str,
-                 metadata_dir: str = os.path.join(os.path.dirname(os.path.realpath(__file__)), "metadata"),
+                 metadata_dir: str = os.path.join(os.path.dirname(__file__), "metadata"),
                  blank_override: bool = False,
                  upload_mode: bool = False,
                  metadata: Optional[str] = None,

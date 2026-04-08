@@ -59,7 +59,7 @@ def create_parser() -> argparse.ArgumentParser:
     metadata_group = parser.add_argument_group("Metadata Options", "Options for handling XML metadata updates. " \
     "If you are not making any metadata updates, you can ignore this section. ")
 
-    metadata_group.add_argument("-mdir","--metadata_dir", required = False, default = os.path.join(os.path.dirname(os.path.realpath(__file__)), "metadata"),
+    metadata_group.add_argument("-mdir","--metadata_dir", required = False, default = os.path.join(os.path.dirname(__file__), "metadata"),
                         help="Path to the directory containing any metadata files to be uploaded. " \
                         "If not specified, the program will look for metadata files in the same directory as the input spreadsheet. " \
                         "This is only relevant if you are including XML updates.")
