@@ -115,7 +115,11 @@ def create_parser() -> argparse.ArgumentParser:
     return parser 
 
 
-def run_cli(args: argparse.Namespace) -> None:
+def run_cli(args: argparse.Namespace | None = None) -> None:
+
+    if args is None:
+        parser = create_parser()
+        args = parser.parse_args()
 
     try:
         log_level = getattr(logging, args.log_level.upper()) if args.log_level else logging.INFO
