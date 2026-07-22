@@ -152,7 +152,7 @@ jobs:
           Compress-Archive -Path "preservica_modify" -DestinationPath "preservica_modify_windows_$version.zip"
 
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: preservica_modify-windows
           path: preservica_modify_windows_*.zip
@@ -222,7 +222,7 @@ jobs:
           tar -czf "preservica_modify_linux_${version}.tar.gz" -C build preservica_modify
 
       - name: Upload Linux artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: preservica_modify-linux
           path: preservica_modify_linux_*.tar.gz
@@ -288,7 +288,7 @@ jobs:
           tar -czf "preservica_modify_macos_${version}.tar.gz" -C build preservica_modify
 
       - name: Upload macOS artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: preservica_modify-macos
           path: preservica_modify_macos_*.tar.gz
