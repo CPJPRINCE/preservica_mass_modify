@@ -133,23 +133,24 @@ jobs:
       - name: Create Windows package
         run: |
           $version = "${{ github.ref_name }}" -replace "^v", ""
+          $portable = "preservica_modify"
           if ($version -eq "") { $version = "1.0.0" }
 
           # Create folder structure
-          New-Item -ItemType Directory -Force -Path "preservica_modify/bin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$portable/bin" | Out-Null
 
           # Copy executable and wrapper
-          Copy-Item -Path "build/preservica_modify.exe" -Destination "preservica_modify/bin/"
-          Copy-Item -Path "installer/preservica_modify.cmd" -Destination "preservica_modify/bin/"
+          Copy-Item -Path "build/preservica_modify.exe" -Destination "$portable/bin/"
+          Copy-Item -Path "installer/preservica_modify.cmd" -Destination "$portable/bin/"
 
           # Copy documentation and scripts
-          Copy-Item -Path "installer/README.txt" -Destination "preservica_modify/"
-          Copy-Item -Path "installer/install.cmd" -Destination "preservica_modify/"
-          Copy-Item -Path "installer/uninstall.cmd" -Destination "preservica_modify/"
-          Copy-Item -Path "LICENSE.md" -Destination "preservica_modify/" -ErrorAction SilentlyContinue
+          Copy-Item -Path "installer/README.txt" -Destination "$portable/"
+          Copy-Item -Path "installer/install.cmd" -Destination "$portable/"
+          Copy-Item -Path "installer/uninstall.cmd" -Destination "$portable/"
+          Copy-Item -Path "LICENSE.md" -Destination "$portable/" -ErrorAction SilentlyContinue
 
           # Create portable ZIP
-          Compress-Archive -Path "preservica_modify" -DestinationPath "preservica_modify_windows_$version.zip"
+          Compress-Archive -Path "$portable" -DestinationPath "preservica_modify_windows_$version.zip"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v7

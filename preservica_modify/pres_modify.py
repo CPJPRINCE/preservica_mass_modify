@@ -448,7 +448,7 @@ class PreservicaMassMod:
         Retrieves retention policies from Preservica and parses them into a dict
         """
         self.policies = self.retention.policies()
-        self.policy_dict = [{"Name": p.name, "Reference": p.reference} for p in self.policies.get_results()]
+        self.policy_dict = [{"Name": p.name, "Reference": p.reference} for p in self.policies]
         logger.info(f'Retention Policies retrieved')
         logger.debug(f'Retention Policies obtained: {self.policy_dict}')
         return self.policy_dict
@@ -646,9 +646,6 @@ class PreservicaMassMod:
     def delete_lookup(self, idx: Hashable):
         """
         Uses the pandas index to retrieve data from the "Delete" column. If True initiates a Delete.                            self.xml_update(ent, ns, xml_new)
-                if ent.entity_type == EntityType.ASSET and self.retention_flag is True:
-                    self.retention_update(ent, self.retention_lookup(idx))
-
         Requires use of a .credentials file.
 
         Delete Flag must also be set.
@@ -800,20 +797,38 @@ class PreservicaMassMod:
 
     def xip_update(self, ent: Entity, title: Optional[str] = None, description: Optional[str] = None, security: Optional[str] = None):
         try:
-            if title:
-                logger.info(f"Updating {ent.reference} Title from {ent.title} to {title}")
-                if self.dummy_flag is False:
-                    ent.title = title
-            if description:
-                logger.info(f"Updating {ent.reference} Description from {ent.description} to {description}")
-                if self.dummy_flag is False:
-                    ent.description = description
-            if security:
-                logger.info(f"Updating {ent.reference} Security Tag from {ent.security_tag} to {security}")
-                if self.dummy_flag is False:
-                    self.entity.security_tag_async(ent, security)
-            if any([title,description]):
-                self.entity.save(ent)
+            if title != ent.title:
+                if check_nan(title) is None:
+                    logger.info(f'Title for {ent.reference} is blank, this cannot be updated')
+                else: 
+                    logger.info(f"Updating {ent.reference} Title from {ent.title} to {title}")
+                    if self.dummy_flag is False:
+                        ent.title = title
+                        self.entity.save(ent)
+            else:
+                logger.info(f"No update required for {ent.reference} Title")
+            if description != ent.description:
+                if check_nan(description) is None and self.blank_override is True:
+                    logger.info(f'Updating Description for {ent.reference} to blank')
+                    if self.dummy_flag is False:
+                        ent.description = ""
+                        self.entity.save(ent)
+                elif check_nan(description) is None and self.blank_override is False:
+                    logger.info(f'Description for {ent.reference} is blank, override is not set - not updating')
+                else:
+                    logger.info(f"Updating {ent.reference} Description from {ent.description} to {description}")
+                    if self.dummy_flag is False:
+                        ent.description = str(description)
+                        self.entity.save(ent)
+            else:
+                logger.info(f"No update required for {ent.reference} Description")
+            if security != ent.security_tag:
+                if check_nan(security) is None:
+                    logger.info(f"Security Tag for {ent.reference} is blank, this cannot be updated")
+                else:
+                    logger.info(f"Updating {ent.reference} Security Tag from {ent.security_tag} to {security}")
+                    if self.dummy_flag is False:
+                        self.entity.security_tag_async(ent, security)
         except Exception:
             logger.exception('Error updating XIP metadata')
             raise
@@ -857,9 +872,9 @@ class PreservicaMassMod:
                 if len(policies) > 1:
                     logger.warning(f'Multiple Retention Policies found for reference: {ent.reference}, taking no action.')
                 elif len(policies) == 1:
-                    policy = policies[0].get('Reference', None)
+                    policy_ref = policies[0].get('Reference', None)
                     policy_name = policies[0].get('Name', None)
-                    if policy is None:
+                    if policy_ref is None:
                         logger.error(f'Retention policy reference not found for name: {retention_policy}')
                         raise LookupError(f'Retention policy reference not found for name: {retention_policy}')
                     if any(assignments):
@@ -867,16 +882,16 @@ class PreservicaMassMod:
                             logger.info(f"Updating {ent.reference} Removing retention policy: {ass.policy_reference}")
                             if self.dummy_flag is False:
                                 self.retention.remove_assignments(ass)
-                    logger.info(f"Updating {ent.reference} Adding retention policy: {policy, policy_name}")
+                    logger.info(f"Updating {ent.reference} Adding retention policy: {policy_ref, policy_name}")
                     if self.dummy_flag is False:
-                        self.retention.add_assignments(ent,self.retention.policy(policy))
+                        self.retention.add_assignments(ent,self.retention.policy(policy_ref))
                 elif len(policies) == 0:
                     logger.error(f'Retention policy not found for name: {retention_policy}')
                     raise LookupError(f'Retention policy not found for name: {retention_policy}')
 
             elif retention_policy is None and self.blank_override is True:
-                assignments = self.retention.assignments(ent)
-                if any(assignments):
+                assignments = list(self.retention.assignments(ent))
+                if len(assignments) > 0:
                     for ass in assignments:
                         logger.info(f"Updating {ent.reference} Removing Retention Policy: {ass.policy_reference}")
                         if self.dummy_flag is False:
