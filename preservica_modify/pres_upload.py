@@ -22,42 +22,6 @@ class PreservicaMassUpload(PreservicaMassMod):
         super().__init__(config_path, spreadsheet_path)
         self.TIMEOUT = timeout
 
-    def parse_config(self, options_file: str, column_sensitivity: bool = False) -> None:
-        config = configparser.ConfigParser()
-        read_config = config.read(options_file, encoding='utf-8')
-        if not read_config:
-            logger.warning(f"Options file not found or not readable: {options_file}. Using defaults.")
-
-        section = config['options'] if 'options' in config else {}
-
-        if column_sensitivity:
-            section = {k:v.lower() for k,v in section.items()}
-
-        self.ENTITY_REF=section.get('ENTITY_REF', 'Entity Ref')
-        self.DOCUMENT_TYPE=section.get('DOCUMENT_TYPE', 'Document type')
-        self.UPLOAD_TYPE=section.get('UPLOAD_TYPE', 'Upload type')
-        self.TITLE_FIELD=section.get('TITLE_FIELD', 'Title')
-        self.DESCRIPTION_FIELD=section.get('DESCRIPTION_FIELD', 'Description')
-        self.SECURITY_FIELD=section.get('SECURITY_FIELD', 'Security')
-        self.RETENTION_FIELD=section.get('RETENTION_FIELD', 'Retention Policy')
-        self.MOVETO_FIELD=section.get('MOVETO_FIELD', 'Move to')
-        self.DELETE_FIELD=section.get('DELETE_FIELD', 'Delete')
-        self.IDENTIFIER_FIELD=section.get('IDENTIFIER_FIELD', 'Identifier')
-        self.IDENTIFIER_DEFAULT=section.get('IDENTIFIER_DEFAULT', 'code')
-        self.FILE_PATH=section.get('FILE_PATH', 'FullName')       
-        
-        self.UPLOAD_TYPE_FIELD=section.get('UPLOAD_TYPE_FIELD', 'Upload type')
-        self.PAX_PRES_FIELD=section.get('PAX_PRES_FIELD', 'Preservation')
-        self.PAX_ACCESS_FIELD=section.get('PAX_ACCESS_FIELD', 'Access')
-        self.PAX_PATH=section.get('PAX_PATH', 'PAX Path')
-
-        self.ARCREF_FIELD=section.get('ARCREF_FIELD', 'Archive_Reference')
-        self.ACCREF_FIELD=section.get('ACCREF_FIELD', 'Accession_Reference')
-        self.ACCREF_CODE=section.get('ACCREF_CODE', 'accref')
-        
-        logger.debug(f'Configuration loaded: {section}')
-
-
     def pax_create(self, idx: int, title: str, description: Optional[str] = None, security: Optional[str] = None, ident_dict: Optional[dict] = None, xml_data: Optional[dict] = None) -> Optional[]:
         if idx is not None:
             pax_path, pax_preservation, pax_access = self.pax_lookup(idx)
@@ -355,63 +319,3 @@ class PreservicaMassUpload(PreservicaMassMod):
                              f'Error message: {str(e)}')
             raise Exception(f'An error occurred during upload mode processing for index {idx} with document type {doc_type}'
                             f'Please review the error message and stack trace for more details.') from e
-
-
-    def _process_upload_mode(self) -> None:
-        try:
-            from preservica_modify.pres_upload import PreservicaMassUpload
-        except ImportError:
-            logger.exception('Upload mode enabled but PreservicaMassUpload class not found. Please ensure you have the pres_upload module in your project and it contains the PreservicaMassUpload class.')
-            raise
-        try:
-            if self.UPLOAD_TYPE in self.column_headers and self.DOCUMENT_TYPE in self.column_headers:
-                logger.warning(f'Both Document Type and Upload Type columns found, defaulting to Upload Type column for reference. Using {self.UPLOAD_TYPE} as basis.')
-                data_dict = self.df[[self.ENTITY_REF, self.UPLOAD_TYPE]].to_dict(orient='index')
-            elif self.UPLOAD_TYPE in self.column_headers:
-                logger.debug(f'Upload Type column found, using {self.UPLOAD_TYPE} as basis for upload mode.')
-                data_dict = self.df[[self.ENTITY_REF, self.UPLOAD_TYPE]].to_dict(orient='index')
-            elif self.DOCUMENT_TYPE in self.column_headers:
-                logger.debug(f'Document Type column found, using {self.DOCUMENT_TYPE} as basis for upload mode.')
-                data_dict = self.df[[self.ENTITY_REF, self.DOCUMENT_TYPE]].to_dict(orient='index')
-            else:
-                logger.error('Upload mode enabled but no Document Type or Upload Type column found. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
-                raise ValueError('Upload mode enabled but no Document Type or Upload Type column found. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
-        except KeyError as e:
-            message = f'Key Error: {e} Please ensure that the "Document Type" and "Upload Type" columns are in your spreadsheet when using upload mode.'
-            logger.exception(message)
-            raise KeyError(message) from e
-        except Exception:
-            logger.exception('Error setting up upload mode')
-            raise
-
-        try:
-            last_ref = None
-            keys, start_pos = self._process_continue_token(data_dict)
-
-            for idx in keys[start_pos:]:
-                reference_dict = data_dict.get(idx)
-                if reference_dict is not None:
-                    ref = check_nan(reference_dict.get(self.ENTITY_REF))
-                else:
-                    logger.error(f'No data found for Index: {idx}, skipping to next row.')
-                    continue
-                if self.UPLOAD_TYPE in self.column_headers:
-                    upload_type = reference_dict.get(self.UPLOAD_TYPE)
-                elif self.DOCUMENT_TYPE in self.column_headers:
-                    upload_type = reference_dict.get(self.DOCUMENT_TYPE)
-                #Ref is the upload folder reference.
-                if ref is None or ref == "Use Parent" and upload_type is not None:
-                    if last_ref is None:
-                        logger.error('No previous reference found. Please provide a reference in at least the first row.')
-                        raise ValueError('No previous reference found. Please provide a reference in at least the first row.')
-                    PreservicaMassUpload('placeholder', spreadsheet_path=self.input_file).process_upload_row(idx, str(last_ref), str(upload_type))
-                else:
-                    last_ref = PreservicaMassUpload('placeholder',spreadsheet_path=self.input_file).process_upload_row(idx, ref, str(upload_type))
-        except KeyboardInterrupt:
-            logger.warning('Process interrupted by user during upload mode, exiting...')
-            if self.disable_continue is False:
-                self._save_continue_token(self.input_file, idx)
-            raise KeyboardInterrupt('Process interrupted by user, exiting...') from None
-        except Exception:
-            logger.exception('Error running upload mode')
-            raise

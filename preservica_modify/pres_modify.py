@@ -14,14 +14,22 @@ from pandas.api.types import is_datetime64_dtype
 from lxml import etree
 from datetime import datetime
 import os, re
-from .common import AuthenticatedPreservicaClient, check_nan, check_bool, export_csv, export_json, export_xml, export_xl, export_ods
+from preservica_modify.common import check_nan, check_bool, export_csv, export_json, export_xml, export_xl, export_ods
 from typing import Optional, Union, Dict, List, Hashable, Any
 import logging
 import configparser
+from getpass import getpass
+
+try:
+    import keyring
+except Exception:
+    keyring = None
+    class KeyringError(Exception):
+        pass
 
 logger = logging.getLogger(__name__)
 
-class PreservicaMassMod(AuthenticatedPreservicaClient):
+class PreservicaMassMod:
     """
     Mass Modification Class
     """
@@ -47,16 +55,6 @@ class PreservicaMassMod(AuthenticatedPreservicaClient):
                  disable_continue: bool = False,
                  column_sensitivity: bool = False,
                  options_file: str = os.path.join(os.path.dirname(__file__),'options', 'options.properties')):
-        super().__init__(username=username,
-                         password=password,
-                         manager_username=manager_username,
-                         manager_password=manager_password,
-                         server=server,
-                         tenant=tenant,
-                         credentials=credentials,
-                         use_keyring=use_keyring,
-                         keyring_service=keyring_service,
-                         save_password_to_keyring=save_password_to_keyring)
         
         self.metadata_dir = metadata_dir
         self.metadata_flag = metadata
@@ -65,8 +63,31 @@ class PreservicaMassMod(AuthenticatedPreservicaClient):
         self.delete_flag = delete
         self.descendants_flag = descendants
         
+        self.upload_flag = upload_mode
+
+        if credentials is not None:
+            if os.path.isfile(credentials):
+                self.credentials_file = credentials
+            else: 
+                self.credentials_file = None
+        else:
+            self.credentials_file = None
+
         self.input_file = input_file
+
+        self.username = username
+        self.password = password
+        self.server = server
+        self.tenant = tenant
+        self.manager_username = manager_username
+        self.manager_password = manager_password
+
+        self.use_keyring = use_keyring
+        self.keyring_service = keyring_service
+        self.save_password_to_keyring = save_password_to_keyring
         
+        self.disable_continue = disable_continue
+
         self.column_sensitivity = column_sensitivity
 
         if options_file is None:
@@ -109,6 +130,197 @@ class PreservicaMassMod(AuthenticatedPreservicaClient):
         self.ACCREF_CODE=section.get('ACCREF_CODE', 'accref')
         
         logger.debug(f'Configuration loaded: {section}')
+
+    def _keyring_entry_name(self) -> str:
+        tenant = self.tenant or "default"
+        server = self.server or "default-server"
+        return f"{self.keyring_service}:{server}:{tenant}"
+
+    def _get_password_from_keyring(self, username) -> Optional[str]:
+        if not self.use_keyring:
+            return None
+        if keyring is None:
+            raise RuntimeError("keyring package is not installed. Install with: pip install keyring")
+        if not username or not self.server:
+            return None
+        try:
+            return keyring.get_password(self._keyring_entry_name(), str(username))
+        except KeyringError as e:
+            logger.warning(f"Unable to read password from keyring: {e}")
+            return None
+        
+    def _set_password_in_keyring(self, username: str, password: str) -> None:
+        if not self.save_password_to_keyring:
+            return
+        if keyring is None:
+            logger.error("keyring package is not installed. Install with: pip install keyring")
+            raise RuntimeError("keyring package is not installed. Install with: pip install keyring")
+        if not self.username or not self.server:
+            return
+        try:
+            keyring.set_password(self._keyring_entry_name(), str(username), password)
+            logger.info("Password saved to keyring.")
+        except KeyringError as e:
+            logger.warning(f"Unable to save password to keyring: {e}")
+
+    def login_preservica(self):
+        """
+        Logs into Preservica. Either through manually logging in.
+        """
+        try:
+            if self.credentials_file:
+                logger.info('Using credentials file.')
+                self.entity = EntityAPI(credentials_path=self.credentials_file)
+                self.retention = RetentionAPI(credentials_path=self.credentials_file)
+                self.upload = UploadAPI(credentials_path=self.credentials_file)
+                self.workflow = WorkflowAPI(credentials_path=self.credentials_file)
+                self.admin = AdminAPI(credentials_path=self.credentials_file)
+                logger.info(f'Successfully logged into Preservica Server {self.server}, as user: {self.username}')
+                return
+                        
+            def _check_password(username: str, password: Optional[str]):
+
+                if None in (username, self.server):
+                    logger.error('A Username or Server has not been provided... Please try again...')
+                    raise ValueError('A Username or Server has not been provided... Please try again...')
+
+                if password is None and self.save_password_to_keyring is False:
+                    password = self._get_password_from_keyring(username)
+                
+                if password is None:
+                    password = getpass(prompt=f"Please enter your password for Preservica for {username}: ")
+                    if self.save_password_to_keyring is True:
+                        self._set_password_in_keyring(username, password)
+                
+                if password is not None:
+                    return password
+                else:
+                    logger.error('Password not provided and could not be retrieved from keyring. Please try again...')
+                    raise ValueError('Password not provided and could not be retrieved from keyring. Please try again...')
+            
+            if self.username:
+                self.password = _check_password(self.username, self.password)
+
+            if self.manager_username:
+                self.manager_password = _check_password(self.manager_username, self.manager_password)
+
+            self.entity = EntityAPI(username=str(self.username), password=str(self.password),server=str(self.server), tenant=str(self.tenant) if self.tenant else None)
+            self.retention = RetentionAPI(username=str(self.username), password=str(self.password),server=str(self.server), tenant=str(self.tenant) if self.tenant else None)
+            self.upload = UploadAPI(username=str(self.username), password=str(self.password),server=str(self.server), tenant=str(self.tenant) if self.tenant else None)
+            self.workflow = WorkflowAPI(username=str(self.username), password=str(self.password),server=str(self.server), tenant=str(self.tenant) if self.tenant else None)
+            self.admin = AdminAPI(username=str(self.username), password=str(self.password),server=str(self.server), tenant=str(self.tenant) if self.tenant else None)
+            logger.info(f'Successfully logged into Preservica Server {self.server}, as user {self.username}')
+        except Exception:
+            logger.exception('Failed to login to Preservica')
+            raise
+
+    def test_login(self):
+        """
+        Test Login function, to ensure credentials are correct before running main.
+        """
+        try:
+            self.login_preservica()
+            logger.info(f'Login successful: {self.server} as {self.username}')
+        except Exception:
+            logger.exception('Login failed')
+            raise
+
+    def _save_continue_token(self, token_file: str, token: Optional[int]) -> None:
+        try:
+            token_file = token_file + "_continue.txt"
+            if token is not None:
+                with open(token_file, 'w') as f:
+                    f.write(str(token))
+                logger.info(f'Continue token saved to {token_file}')
+        except FileNotFoundError:
+            logger.exception(f'Continue token file not found: {token_file}, unable to save continue token...')
+            raise
+        except PermissionError as e:
+            logger.exception(f'Permission denied when saving continue token to file {token_file}: {e}')
+            raise
+        except Exception as e:
+            logger.exception(f'Failed to save continue token to file {token_file}: {e}')
+            raise
+
+    def _load_continue_token(self, token_file: str) -> Optional[int]:
+        try:
+            token_file = token_file + "_continue.txt"
+            if os.path.isfile(token_file):
+                with open(token_file, 'r') as f:
+                    token_str = f.read().strip()
+                    token = int(token_str)
+                    if isinstance(token, int):
+                        logger.info(f'Continue token loaded from {token_file}, processing from index: {token}')
+                        return token
+                    else:
+                        logger.warning(f'Invalid continue token value in {token_file}: {token_str}')
+                        raise ValueError(f'Invalid continue token value in {token_file}: {token_str}')
+            else:
+                logger.debug(f'No continue token file found at {token_file}, starting from beginning...')
+                return 0
+        except PermissionError:
+            logger.warning(f'Permission denied when loading token {token_file}, starting from beggining')
+            return 0
+        except Exception:
+            logger.warning(f'Invalid continue token value in {token_file}, starting from beginning...')
+            return 0
+                        
+    def _remove_continue_token(self, token_file: str) -> None:
+        token_file = token_file + "_continue.txt"
+        if os.path.isfile(token_file):
+            os.remove(token_file)
+            logger.info(f'Continue token file {token_file} removed.')
+
+    def _set_input_flags(self) -> None:
+        """
+        Sets the input flags
+        """
+        self.title_flag = False
+        self.description_flag = False
+        self.security_flag = False
+        self.retention_flag = False
+        self.dest_flag = False
+        self.move_flag = False
+        if self.TITLE_FIELD in self.column_headers:
+            self.title_flag = True
+        if self.DESCRIPTION_FIELD in self.column_headers:
+            self.description_flag = True
+        if self.SECURITY_FIELD in self.column_headers:
+            self.security_flag = True
+        if self.RETENTION_FIELD in self.column_headers:
+            self.retention_flag = True
+        if self.MOVETO_FIELD in self.column_headers:
+            self.move_flag = True
+        logger.debug(f'Input Flags - Title: {self.title_flag}, Description: {self.description_flag}, Security: {self.security_flag}, Retention: {self.retention_flag}, Move: {self.move_flag}')
+
+    def init_df(self) -> None:
+
+        from .cli import fmthelper
+
+        input_fmt = fmthelper(os.path.splitext(self.input_file)[-1].replace('.',''))
+        logger.info(f'Initializing dataframe from input file: {self.input_file} with detected format: {input_fmt}. May take time to load.')
+
+        if input_fmt.endswith("xlsx"):
+            self.df: pd.DataFrame = pd.read_excel(self.input_file)
+        elif input_fmt.endswith("csv"):
+            self.df: pd.DataFrame = pd.read_csv(self.input_file)
+        elif input_fmt.endswith("ods"):
+            self.df: pd.DataFrame = pd.read_excel(self.input_file, engine='odf')
+        elif input_fmt.endswith("json"):
+            self.df: pd.DataFrame = pd.read_json(self.input_file, orient='index')
+        elif input_fmt.endswith("xml"):
+            self.df: pd.DataFrame = pd.read_xml(self.input_file)
+        else:
+            logger.error("Unsupported file type for input. Please use .xlsx, .csv, .json or .xml")
+            raise ValueError("Unsupported file type for input. Please use .xlsx, .csv, .json or .xml")
+       
+        self.column_headers = list(self.df.columns.values)
+        if self.column_sensitivity is True:
+            self.column_headers = [str(header).lower() for header in self.column_headers]
+            self.df.columns = self.column_headers
+        date_headers = [header for header in self.column_headers if "date" in str(header).lower()]
+        self.df[date_headers] = self.df[date_headers].apply(lambda x: pd.to_datetime(x,format='mixed'))
+
 
     def print_local_xmls(self) -> None:
         try:
@@ -241,6 +453,212 @@ class PreservicaMassMod(AuthenticatedPreservicaClient):
         logger.debug(f'Retention Policies obtained: {self.policy_dict}')
         return self.policy_dict
 
+    def xml_merge(self, xml_a: Union[etree._Element, etree._ElementTree], xml_b: Union[etree._Element, etree._ElementTree], x_parent: Union[etree._Element, etree._ElementTree, None] = None) -> etree._Element:
+        """
+        Merges two xml's together. xml_b overwrites xml_a, unless xml_b's element contains a blank value.
+        If blank_override is set, blank value will override xml_a's element.
+
+        :param xml_a: xml to merge into
+        :param xml_b: xml to merge from
+        :param x_parent: xml parent, only use for recursion
+        """
+        a_root = xml_a.getroot() if isinstance(xml_a, etree._ElementTree) else xml_a
+        b_root = xml_b.getroot() if isinstance(xml_b, etree._ElementTree) else xml_b
+
+        for b_child in b_root.findall('./'):
+            a_child = a_root.find('./' + b_child.tag)
+            if a_child is not None:
+                logger.debug(f'Found matching element in original XML for {b_child.tag}')
+                x_parent = None
+                if a_child.text is not None:
+                    if b_child.text:
+                        logger.debug(f'Updating element: {b_child.tag} with value: {b_child.text}')
+                        a_child.text = b_child.text
+                    elif self.blank_override is True and b_child.tag in self.xnames:
+                        logger.debug(f'Blank override enabled, updating element: {b_child.tag} with blank value')
+                        a_child.text = None
+                    else:
+                        logger.debug(f'Keeping existing value for element: {b_child.tag} with value: {a_child.text}')
+                        a_child.text = a_child.text
+                else:
+                    if b_child.text:
+                        logger.debug(f'Updating blank element: {b_child.tag} with value: {b_child.text}')
+                        a_child.text = b_child.text
+                    else:
+                        logger.debug(f'Element: {b_child.tag} is blank in both XMLs, keeping as blank')
+                        pass
+            else:
+                logger.debug(f'Element: {b_child.tag} not found in original XML, adding element with value: {b_child.text}')
+                x_parent = a_root
+                a_child = etree.SubElement(a_root,b_child.tag)
+                if b_child.text:
+                    logger.debug(f'Adding value for new element: {b_child.tag} with value: {b_child.text}')
+                    a_child.text = b_child.text
+                else:
+                    logger.debug(f'New element: {b_child.tag} is blank, setting as blank')
+                    a_child.text = None
+            if len(b_child) > 0:
+                logger.debug(f'Element: {b_child.tag} has children, merging children elements')
+                self.xml_merge(a_child,b_child,x_parent)
+        logger.debug(f'Merged XML: {etree.tostring(xml_a)}')
+        return a_root
+    
+    def _cell(self, idx: Any, column: str) -> Any:
+        return self.df.at[idx, column]
+
+    def xip_lookup(self, idx: Hashable) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """
+        Uses the pandas index to retrieve data from the "Title, Description and Security" columns. Sets data in Entity.
+        :param idx: Pandas Index to lookup
+        """
+
+        if getattr(self, 'df', None) is None:
+            logger.error('Dataframe not initialised, cannot perform lookup')
+            raise RuntimeError('Dataframe not initialised, cannot perform lookup')
+        try:
+            if self.title_flag:
+                title = check_nan(self._cell(idx, self.TITLE_FIELD))
+                logger.debug(f'XIP Lookup Title: {title}')
+            else:
+                title = None
+            if self.description_flag:
+                description = check_nan(self._cell(idx, self.DESCRIPTION_FIELD))
+                if description is None and self.blank_override is True:
+                    description = None
+                logger.debug(f'XIP Lookup Description: {description}')
+            else:
+                description = None
+            if self.security_flag:
+                security = check_nan(self._cell(idx, self.SECURITY_FIELD))
+                logger.debug(f'XIP Lookup Security: {security}')
+            else:
+                security = None
+            return title, description, security
+        except KeyError as e:
+            message = f'Key Error XIP Lookup, missing Column: {e} please ensure column header\'s are an exact match...'
+            logger.exception(message)
+            raise KeyError(message) from e
+        except IndexError as e:
+            logger.warning(f"Index Error for XIP Lookup: {e} it is likely you have removed or added a file/folder to the directory"
+                         "after generating the spreadsheet. An opex will still be generated but with no identifiers. To ensure identifiers match up please ensure match up...")
+            return None, None, None
+        except Exception:
+            logger.exception(f'Retention XIP failed: for {idx}')
+            raise
+    
+    def ident_lookup(self, idx: Hashable, default_key: Optional[str] = None) -> Optional[Dict[str, Optional[str]]]:
+        """
+        Uses the pandas index to retrieve data from the "Identifier","Archive_Reference", columns. Sets identifiers in Entity.
+        "Archive_Reference" & "Accession_Reference" are hard-set.
+
+        :param idx: Pandas Index to lookup
+        :param e: Entity to act upon
+        :param key_default: Set the default key value  
+        """
+        try:
+            ident_dict = {}
+            for header in self.column_headers:
+                header = str(header)
+                if any(s in header for s in {self.IDENTIFIER_FIELD,'Archive_Reference','Accession_Reference'}):
+                    if f"{self.IDENTIFIER_FIELD}:" in header:
+                        key_name = str(header).rsplit(':',1)[-1]
+                    else:
+                        if self.ARCREF_FIELD in header:
+                            key_name = default_key if default_key else self.IDENTIFIER_DEFAULT
+                        elif self.ACCREF_FIELD in header:
+                            key_name = self.ACCREF_CODE
+                        elif self.IDENTIFIER_FIELD in header:
+                            key_name = default_key if default_key else self.IDENTIFIER_DEFAULT
+                        else:
+                            key_name = default_key if default_key else self.IDENTIFIER_DEFAULT
+                    ident = check_nan(self._cell(idx, header))
+                    logger.debug(f'Identifier Lookup for {key_name}: {ident}')
+                    ident_dict.update({key_name:ident})
+            if len(ident_dict) == 0:
+                ident_dict = None
+            return ident_dict
+        except KeyError as e:
+            message = f'Key Error for Identifier Lookup, missing Column: {e} please ensure column header\'s are an exact match...'
+            logger.exception(message)
+            raise KeyError(message) from e
+        except IndexError as e:
+            logger.warning(f"Index Error for Identifier Lookup: {e} it is likely you have removed or added a file/folder to the directory"
+                         "after generating the spreadsheet. An opex will still be generated but with no identifiers. To ensure identifiers match up please ensure match up...")
+        except Exception:
+            logger.exception(f'Identifier Lookup failed: for {idx}')
+            raise
+        
+    def retention_lookup(self, idx: Hashable):
+        """
+        Uses the pandas index to retrieve data from the "Retention Policy" column
+
+        Matched against the policies obtained in the obtain_retentions function.
+
+        :param idx: Pandas Index to lookup
+        :param e: Entity to act upon
+        """
+        try:
+            if self.retention_flag:
+                retention_policy = check_nan(self._cell(idx,self.RETENTION_FIELD))
+            else:
+                retention_policy = None
+            logger.debug(f'Retention Lookup for {idx}: {retention_policy}')    
+            return retention_policy
+        except KeyError as e:
+            message = f'Key Error Retention Lookup, missing Column: {e} please ensure column header\'s are an exact match...'
+            logger.exception(message)
+            raise KeyError(message) from e
+        except IndexError as e:
+            logger.warning(f"Index Error for Retention Lookup: {e} it is likely you have removed or added a file/folder to the directory"
+                         "after generating the spreadsheet. An opex will still be generated but with no identifiers. To ensure identifiers match up please ensure match up...")
+        except Exception:
+            logger.exception(f'Retention Lookup failed: for {idx}')
+            raise
+
+    def pax_lookup(self, idx: Hashable) -> Optional[tuple[Optional[str], Optional[list], Optional[list]]]:
+        try:
+            pax_path = check_nan(self._cell(idx, self.PAX_PATH))
+            pax_dict = self.df.loc[[self.df[self.PAX_PATH] == pax_path, [self.FILE_PATH,self.PAX_PRES_FIELD,self.PAX_ACCESS_FIELD]]].to_dict(orient='index')
+            file_access = check_bool(self._cell(idx, self.PAX_ACCESS_FIELD))
+            file_preservation = check_bool(self._cell(idx, self.PAX_ACCESS_FIELD))
+            if file_access is False and file_preservation is False:
+                logger.info(f'Preservation/Access is not set for {idx, pax_path}, setting Preservation to True by default')
+                pax_dict[idx][self.PAX_PRES_FIELD] = True
+            if file_access is True and file_preservation is True:
+                logger.info(f'Both Preservation and Access are set to True for PAX: {idx, pax_path}, only using Preservation file in PAX')
+                pax_dict[idx][self.PAX_ACCESS_FIELD] = False
+            pres_list = [v.get(self.FILE_PATH) for v in pax_dict.values() if check_bool(v.get(self.PAX_PRES_FIELD))]
+            logger.debug(f'PAX Preservation List for {idx}: {pres_list}')
+            access_list = [v.get(self.FILE_PATH) for v in pax_dict.values() if check_bool(v.get(self.PAX_ACCESS_FIELD))]
+            logger.debug(f'PAX Access List for {idx}: {access_list}')
+            return pax_path, pres_list, access_list
+        except KeyError as e:
+            message = f'Key Error for Pax Lookup, missing Column: {e} please ensure column header\'s are an exact match...'
+            logger.exception(message)
+            raise KeyError(message) from e
+        except IndexError as e:
+            logger.warning(f"Index Error for Pax Lookup: {e} it is likely you have removed or added a file/folder to the directory"
+                         "after generating the spreadsheet. An opex will still be generated but with no identifiers. To ensure identifiers match up please ensure match up...")
+        except Exception:
+            logger.exception(f'Pax Lookup failed: for {idx}')
+            raise
+
+    def delete_lookup(self, idx: Hashable):
+        """
+        Uses the pandas index to retrieve data from the "Delete" column. If True initiates a Delete.                            self.xml_update(ent, ns, xml_new)
+                if ent.entity_type == EntityType.ASSET and self.retention_flag is True:
+                    self.retention_update(ent, self.retention_lookup(idx))
+
+        Requires use of a .credentials file.
+
+        Delete Flag must also be set.
+        """
+        try:
+            return check_bool(self._cell(idx, self.DELETE_FIELD))    
+        except Exception:
+            logger.exception('Failed to lookup delete flag')
+            raise
+
     def init_generate_descriptive_metadata(self) -> List[Dict[str, Any]]:
         """
         Initialises the descriptive metadata by parsing the XML files in the metadata directory, generating a list of the elements and their namespaces, and comparing them against the column headers in the spreadsheet to filter out non-matching data.
@@ -303,8 +721,259 @@ class PreservicaMassMod(AuthenticatedPreservicaClient):
         except Exception:
             logger.exception('Failed to intialise XML Metadata')
             raise
+    
+    def generate_descriptive_metadata(self, idx: Hashable, xml_files: List[Dict[str, Any]]) -> Optional[List[Dict[str, Union[etree._ElementTree, list[Optional[str]]]]]]:
+        """
+        Generates the xml file based on the returned list of xml_files from the init_generate_descriptive_metadata function.
 
-    def _process_descent(self, idx: int, descendant_ent: Entity, entity_type: EntityType):
+        :param idx: Pandas Index to lookup
+        :param xml_file: Dictionary of XML files created as part of init 
+        
+        This version returns a list of dictionaries containing the XML tree and the XNames for each file, which can be used in the xml_merge function to merge the generated metadata with the original XML template. This allows for more flexible handling of multiple XML files and ensures that all relevant metadata is included in the final Opex manifest.
+        """
+        try:
+            xml_list = []
+            for xml_file in xml_files:
+                xml_file: Dict[str, Any]
+                xml_data = xml_file.get('data')
+                xnames: list[Optional[str]] = []
+                xnames = [x.get('XName') for x in xml_data if isinstance(x, Dict)] if xml_data is not None else []                
+                local_name = xml_file.get('local_name', None)
+                local_ns = xml_file.get('local_ns', None)
+                if local_name is None or local_ns is None:
+                    logger.warning(f'Missing local_name or local_ns for XML file: {xml_file.get("xml_file")}, skipping XML generation for this file.')
+                    continue
+                if xml_data is None or len(xml_data) == 0:
+                    logger.warning(f'No XML elements found for {xml_file.get("xml_file")}, skipping XML generation for this file.')
+                    continue
+                else:
+                    xml_new = etree.parse(str(xml_file.get('xml_file')))
+                    for elem_dict in xml_data:
+                        if not isinstance(elem_dict, Dict):
+                            logger.warning(f'Invalid element data for {elem_dict} in file {xml_file.get("xml_file")}, skipping this element.')
+                            continue
+                        name = elem_dict.get('Name')
+                        path = elem_dict.get('Path')
+                        elm_ns = elem_dict.get('Namespace')
+                        if not isinstance(name, str) or not isinstance(path, str) or not isinstance(elm_ns, str):
+                            logger.warning(f'Missing Name or Path or Namespace for element {elem_dict} in file {xml_file.get("xml_file")}, skipping this element.')
+                            continue
+                        if self.metadata_flag in {'exact'}:
+                            val = check_nan(self._cell(idx, path))
+                        elif self.metadata_flag in {'flat'}:
+                            val = check_nan(self._cell(idx, name))
+                        if pd.isnull(val) or val is None:
+                            continue
+                        else:
+                            if is_datetime64_dtype(val):
+                                val = pd.to_datetime(val)
+                                val = datetime.strftime(val, "%Y-%m-%dT%H:%M:%S.000Z")
+                        if self.metadata_flag in {'exact'}:
+                            n = path.replace(local_name + ":", f"{{{elm_ns}}}")
+                            elem = xml_new.find(f'./{n}')
+                            if elem is None:
+                                logger.warning(f'XML element not found for path: {n, path} in {xml_file}.')
+                                continue
+                        elif self.metadata_flag in {'flat'}:
+                            n = name.split(':')[-1]
+                            elem = xml_new.find(f'.//{{{elm_ns}}}{n}')
+                            if elem is None:
+                                logger.warning(f'Element not found in XML for {name, path} in {xml_file}.')
+                                continue
+                        if elem is not None:
+                            elem.text = str(val)
+                    xml_list.append({local_ns: xml_new, 'xnames': xnames})
+            return xml_list
+        except KeyError as e:
+            logger.exception(f'Key Error in XML Lookup: {e}' \
+            '\n Please ensure column header\'s are an exact match.')
+            raise
+        except IndexError as e:
+            logger.warning(f'Index Error: {e}' \
+            '\nIt is likely you have removed or added a file/folder to the directory' \
+            'after generating your input spreadsheetree. An opex will still be generated but with no xml metadata.' \
+            '\nTo ensure metadata match up please regenerate the spreadsheetree.')
+            return None
+        except Exception:
+            logger.exception('General Error in XML Lookup')
+            raise
+
+    def xip_update(self, ent: Entity, title: Optional[str] = None, description: Optional[str] = None, security: Optional[str] = None):
+        try:
+            if title:
+                logger.info(f"Updating {ent.reference} Title from {ent.title} to {title}")
+                if self.dummy_flag is False:
+                    ent.title = title
+            if description:
+                logger.info(f"Updating {ent.reference} Description from {ent.description} to {description}")
+                if self.dummy_flag is False:
+                    ent.description = description
+            if security:
+                logger.info(f"Updating {ent.reference} Security Tag from {ent.security_tag} to {security}")
+                if self.dummy_flag is False:
+                    self.entity.security_tag_async(ent, security)
+            if any([title,description]):
+                self.entity.save(ent)
+        except Exception:
+            logger.exception('Error updating XIP metadata')
+            raise
+    
+    def ident_update(self, ent: Entity, ident_dict: Union[dict,None]):
+        if ident_dict is None:
+            return
+        try:
+            xip_idents = self.entity.identifiers_for_entity(ent)
+            for items in ident_dict.items():
+                key_name = items[0]
+                ident = items[1]
+                if ident is not None:
+                    if any(x[0] for x in xip_idents if x[0] == key_name):
+                        old_ident = [x[1] for x in xip_idents if x[0] == key_name][0]
+                        logger.info(f'Updating {ent.reference} Updating identifier {key_name, old_ident} to: {key_name, ident}')
+                        if self.dummy_flag is False:
+                            self.entity.update_identifiers(ent,key_name,str(ident))
+                    else: 
+                        logger.info(f'Updating {ent.reference} Adding identifier: {key_name, ident}')
+                        if self.dummy_flag is False:
+                            self.entity.add_identifier(ent,key_name,str(ident))
+                else:
+                    if self.blank_override is True:
+                        if any(x[0] for x in xip_idents if x[0] == key_name):
+                            old_ident = [x[1] for x in xip_idents if x[0] == key_name][0]
+                            logger.info(f'Updating {ent.reference} Deleting identifier {key_name, old_ident}')
+                            if self.dummy_flag is False:
+                                self.entity.delete_identifiers(ent,key_name,str(old_ident))
+                        else:
+                            pass
+        except Exception:
+            logger.exception('Error updating identifiers')
+            raise
+                    
+    def retention_update(self, ent: Entity, retention_policy: Optional[str] = None):
+        try:
+            if retention_policy is not None:
+                assignments = self.retention.assignments(ent)
+                policies = [policy for policy in self.policy_dict if policy.get('Name') == retention_policy]
+                if len(policies) > 1:
+                    logger.warning(f'Multiple Retention Policies found for reference: {ent.reference}, taking no action.')
+                elif len(policies) == 1:
+                    policy = policies[0].get('Reference', None)
+                    policy_name = policies[0].get('Name', None)
+                    if policy is None:
+                        logger.error(f'Retention policy reference not found for name: {retention_policy}')
+                        raise LookupError(f'Retention policy reference not found for name: {retention_policy}')
+                    if any(assignments):
+                        for ass in assignments:
+                            logger.info(f"Updating {ent.reference} Removing retention policy: {ass.policy_reference}")
+                            if self.dummy_flag is False:
+                                self.retention.remove_assignments(ass)
+                    logger.info(f"Updating {ent.reference} Adding retention policy: {policy, policy_name}")
+                    if self.dummy_flag is False:
+                        self.retention.add_assignments(ent,self.retention.policy(policy))
+                elif len(policies) == 0:
+                    logger.error(f'Retention policy not found for name: {retention_policy}')
+                    raise LookupError(f'Retention policy not found for name: {retention_policy}')
+
+            elif retention_policy is None and self.blank_override is True:
+                assignments = self.retention.assignments(ent)
+                if any(assignments):
+                    for ass in assignments:
+                        logger.info(f"Updating {ent.reference} Removing Retention Policy: {ass.policy_reference}")
+                        if self.dummy_flag is False:
+                            self.retention.remove_assignments(ass)
+            else:
+                pass                    
+        except Exception:
+            logger.exception(f'Error updating retention: {ent.reference}')
+            raise
+                    
+    def xml_update(self, ent: Entity, ns: str, xml_new: etree._ElementTree):
+        """
+        Makes the call on Preservica's API using pyPreservica to update, remove or add metadata from given entity.
+
+        The namespace must also be passed - this is retrieved automatically. 
+
+        :param e: Entity to act upon
+        :param ns: Namespace of XML being updated
+        """
+        try:
+            #Change so it's dynamic - not only self.upload_flag - also indent_update needs same treatment
+            if self.upload_flag:
+                ent_meta = None
+            else:
+                ent_meta = self.entity.metadata_for_entity(ent, ns)
+            # Check if metadata exists for the entity
+            if ent_meta is None:
+                xml_to_upload = etree.tostring(xml_new)
+                logger.info(f"Updating {ent.reference} Adding Metadata for: {ns}")
+                logger.debug(f'New XML Metadata: {xml_to_upload}')
+                if self.dummy_flag is False:
+                    self.entity.add_metadata(ent, ns, xml_to_upload.decode('utf-8'))
+            # Metadata exists, merge and update
+            else:
+                xml_to_upload = etree.tostring(self.xml_merge(etree.fromstring(ent_meta), xml_new))
+                logger.info(f"Updating {ent.reference} Updating Metadata for: {ns}")
+                logger.debug(f'Updated XML Metadata: {xml_to_upload}')
+                if self.dummy_flag is False:
+                    self.entity.update_metadata(ent, ns, xml_to_upload.decode('utf-8'))
+        except Exception:
+            logger.exception('Error updating XML metadata')
+            raise
+
+    def move_update(self, idx: int, ent: Entity):
+        """
+        Uses the pandas index to retrieve data from the "Move To" column. Initiates a move. 
+
+        :param idx: Pandas Index to lookup
+        :param ent: Entity to act upon
+        """
+        if self.move_flag is True:
+            dest = check_nan(self.df[self.MOVETO_FIELD].loc[idx])
+            if dest is not None:
+                if re.search("^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$", dest):
+                    dest_folder = self.entity.folder(dest)
+                    logger.info(f'Moving Entity: {ent.reference}, {ent.title}, to: {dest_folder.reference}, {dest_folder.title}')
+                    if self.dummy_flag is False:
+                        self.entity.move_async(entity=ent, dest_folder=dest_folder)
+                else:
+                    logger.error(f'Reference: {ent.reference} in "Move To" is formatted incorrectly: {dest}')
+                    raise ValueError(f'Reference: {ent.reference} in "Move To" is formatted incorrectly: {dest}')
+
+    def delete_update(self, idx: Hashable, ent: Entity):
+        """
+        Uses the pandas index to retrieve data from the "Delete" column. If True initiates a Delete.
+        Requires use of a .credentials file.
+
+        Delete Flag must also be set.
+        """
+        try:
+            if self.delete_flag is True:
+                delete_conf = self.delete_lookup(idx)
+                if delete_conf is True and (self.manager_username or self.credentials_file):
+                    if ent.entity_type == EntityType.ASSET:
+                        logger.info(f'Deleting Asset: {ent.reference}')
+                        if self.dummy_flag is False:
+                            self.entity.delete_asset(self.entity.asset(ent.reference),"Deleted by Preservica Mass Modify","Deleted by Preservica Mass Modify", self.credentials_file, self.manager_username, self.manager_password)
+                        return True
+                    elif ent.entity_type == EntityType.FOLDER:
+                        logger.info(f'Deleting Folder: {ent.reference}')
+                        if self.dummy_flag is False:
+                            self.entity.delete_folder(self.entity.folder(ent.reference),"Deleted by Preservica Mass Modify","Deleted by Preservica Mass Modify", self.credentials_file,  self.manager_username, self.manager_password)
+                        return True
+                if delete_conf is True:
+                    logger.error('Delete requested but no manager username or credentials file provided.')
+                    raise PermissionError('Delete requested but no manager username or credentials file provided.')
+            else:
+                return False
+        except KeyError as e:
+            message = f'Failed to delete entity due to missing key: {e}'
+            logger.exception(message)
+            raise KeyError(message) from e
+        except Exception:
+            logger.exception('Failed to delete entity')
+            raise
+
+    def _process_descent(self,idx: int, descendant_ent: Entity, entity_type: EntityType):
         """
         Process function for descendants, separated to avoid repetition.
         """
@@ -354,6 +1023,86 @@ class PreservicaMassMod(AuthenticatedPreservicaClient):
                         self._process_descent(idx, descendant_ent, EntityType.ASSET)
                     elif "include-folders" in self.descendants_flag and descendant_ent.entity_type == EntityType.FOLDER:
                         self._process_descent(idx, descendant_ent, EntityType.FOLDER)
+
+    def _process_upload_mode(self) -> None:
+        try:
+            from preservica_modify.pres_upload import PreservicaMassUpload
+        except ImportError:
+            logger.exception('Upload mode enabled but PreservicaMassUpload class not found. Please ensure you have the pres_upload module in your project and it contains the PreservicaMassUpload class.')
+            raise
+        try:
+            if self.UPLOAD_TYPE in self.column_headers and self.DOCUMENT_TYPE in self.column_headers:
+                logger.warning(f'Both Document Type and Upload Type columns found, defaulting to Upload Type column for reference. Using {self.UPLOAD_TYPE} as basis.')
+                data_dict = self.df[[self.ENTITY_REF, self.UPLOAD_TYPE]].to_dict(orient='index')
+            elif self.UPLOAD_TYPE in self.column_headers:
+                logger.debug(f'Upload Type column found, using {self.UPLOAD_TYPE} as basis for upload mode.')
+                data_dict = self.df[[self.ENTITY_REF, self.UPLOAD_TYPE]].to_dict(orient='index')
+            elif self.DOCUMENT_TYPE in self.column_headers:
+                logger.debug(f'Document Type column found, using {self.DOCUMENT_TYPE} as basis for upload mode.')
+                data_dict = self.df[[self.ENTITY_REF, self.DOCUMENT_TYPE]].to_dict(orient='index')
+            else:
+                logger.error('Upload mode enabled but no Document Type or Upload Type column found. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
+                raise ValueError('Upload mode enabled but no Document Type or Upload Type column found. Please ensure you have a column with either Document Type or Upload Type as the header to use upload mode.')
+        except KeyError as e:
+            message = f'Key Error: {e} Please ensure that the "Document Type" and "Upload Type" columns are in your spreadsheet when using upload mode.'
+            logger.exception(message)
+            raise KeyError(message) from e
+        except Exception:
+            logger.exception('Error setting up upload mode')
+            raise
+
+        try:
+            last_ref = None
+            keys, start_pos = self._process_continue_token(data_dict)
+
+            for idx in keys[start_pos:]:
+                reference_dict = data_dict.get(idx)
+                if reference_dict is not None:
+                    ref = check_nan(reference_dict.get(self.ENTITY_REF))
+                else:
+                    logger.error(f'No data found for Index: {idx}, skipping to next row.')
+                    continue
+                if self.UPLOAD_TYPE in self.column_headers:
+                    upload_type = reference_dict.get(self.UPLOAD_TYPE)
+                elif self.DOCUMENT_TYPE in self.column_headers:
+                    upload_type = reference_dict.get(self.DOCUMENT_TYPE)
+                #Ref is the upload folder reference.
+                if ref is None or ref == "Use Parent" and upload_type is not None:
+                    if last_ref is None:
+                        logger.error('No previous reference found. Please provide a reference in at least the first row.')
+                        raise ValueError('No previous reference found. Please provide a reference in at least the first row.')
+                    PreservicaMassUpload('placeholder', spreadsheet_path=self.input_file).process_upload_row(idx, str(last_ref), str(upload_type))
+                else:
+                    last_ref = PreservicaMassUpload('placeholder',spreadsheet_path=self.input_file).process_upload_row(idx, ref, str(upload_type))
+        except KeyboardInterrupt:
+            logger.warning('Process interrupted by user during upload mode, exiting...')
+            if self.disable_continue is False:
+                self._save_continue_token(self.input_file, idx)
+            raise KeyboardInterrupt('Process interrupted by user, exiting...') from None
+        except Exception:
+            logger.exception('Error running upload mode')
+            raise
+
+
+    def _process_continue_token(self, data_dict: dict) -> tuple[list[int], int]:
+        if self.disable_continue is True:
+            start_idx = 0
+        else:
+            start_idx = self._load_continue_token(self.input_file)
+            if not isinstance(start_idx, int):
+                logger.error(f'Invalid continue token: {start_idx}, must be an integer index. Please ensure the continue token file contains a valid integer index.')
+                raise ValueError(f'Invalid continue token: {start_idx}, must be an integer index. Please ensure the continue token file contains a valid integer index.')
+            keys = list(data_dict.keys())
+            if start_idx in keys:
+                start_pos = keys.index(start_idx)
+            else:
+                start_pos = max(0, int(start_idx))
+        keys = list(data_dict.keys())
+        if start_idx in keys:
+            start_pos = keys.index(start_idx)
+        else:
+            start_pos = max(0, int(start_idx))
+        return keys, start_pos    
 
     def _process_rows(self, data_dict: dict) -> None:
         try:
@@ -452,6 +1201,10 @@ class PreservicaMassMod(AuthenticatedPreservicaClient):
                 self.init_generate_descriptive_metadata()
             if self.retention_flag is True:
                 self.get_retentions()
+            if self.upload_flag is True:
+                self._process_upload_mode()
+                self._remove_continue_token(self.input_file)
+                return
             if self.DOCUMENT_TYPE in self.column_headers:
                 data_dict = self.df[[self.ENTITY_REF, self.DOCUMENT_TYPE]].to_dict(orient='index')
             else:
