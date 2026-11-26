@@ -8,7 +8,6 @@ Author: Christopher Prince
 license: Apache License 2.0"
 """
 
-
 from pyPreservica import EntityAPI, RetentionAPI, UploadAPI, WorkflowAPI, AdminAPI, Entity, EntityType
 import pandas as pd
 from pandas.api.types import is_datetime64_dtype
@@ -28,7 +27,7 @@ class PreservicaMassMod(AuthenticatedPreservicaClient):
     """
     def __init__(self,
                  input_file: str,
-                 metadata_dir: str = os.path.join(os.getcwd(),"metadata"),
+                 metadata_dir: str = os.path.join(os.path.dirname(__file__), "metadata"),
                  blank_override: bool = False,
                  upload_mode: bool = False,
                  metadata: Optional[str] = None,
@@ -187,7 +186,7 @@ class PreservicaMassMod(AuthenticatedPreservicaClient):
                 else:
                     export_xl(xml_df, file.name.replace('.xml','.xlsx'))
         except Exception:
-            logger.exception('Failed to print Descriptive metadta files, ensure correct path')
+            logger.exception('Failed to print Descriptive metadata files, ensure correct path')
             raise
 
     def convert_remote_xmls(self, output_format: str) -> None:
@@ -237,7 +236,7 @@ class PreservicaMassMod(AuthenticatedPreservicaClient):
         Retrieves retention policies from Preservica and parses them into a dict
         """
         self.policies = self.retention.policies()
-        self.policy_dict = [{"Name": p.name, "Reference": p.reference} for p in self.policies.get_results()]
+        self.policy_dict = [{"Name": p.name, "Reference": p.reference} for p in self.policies]
         logger.info(f'Retention Policies retrieved')
         logger.debug(f'Retention Policies obtained: {self.policy_dict}')
         return self.policy_dict
