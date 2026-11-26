@@ -5,8 +5,8 @@ Author: Christopher Prince
 license: Apache License 2.0"
 """
 
-from preservica_modify.pres_modify import PreservicaMassMod
-# from .pres_upload import PreservicaMassUpload --- IGNORE ---
+from preservica_modify.presModify import PreservicaMassMod
+from preservica_modify.presUpload import PreservicaMassUpload
 from preservica_modify.cli import main, create_parser, run_cli
 from preservica_modify.common import check_nan, check_bool, export_csv, export_json, export_xml, export_xl, export_ods
 from importlib import metadata

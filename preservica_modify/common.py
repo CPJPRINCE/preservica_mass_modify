@@ -8,8 +8,12 @@ license: Apache License 2.0"
 import pandas as pd
 import logging, time
 from typing import Literal, Optional, Any
+import argparse
 
 logger = logging.getLogger(__name__)
+
+def _cell(df, idx: Any, column: str) -> Any:
+    return df.at[idx, column]
 
 def check_nan(value) -> Optional[Any]:
     if str(value).lower() in {"nan","nat"}:
@@ -86,3 +90,38 @@ def export_ods(df: pd.DataFrame, output_filename: str, index: bool = False):
         logger.warning(f'File {e} failed to open; waiting 10 seconds to try again...')
         time.sleep(10)
         export_ods(df, output_filename, index = index)
+
+def server_helper(server_str: str) -> str:
+    if server_str.startswith("https://"):
+        return server_str.replace("https://", "", 1)
+    if server_str.startswith("http://"):
+        return server_str.replace("http://", "", 1)
+    return server_str
+
+def fmthelper(x: str):
+    x = x.lower()
+    if x in ('xlsx', 'xlsm', 'xltx', 'xltm', 'xlsb', 'xls', 'excel', 'xl'):
+        x = 'xlsx'
+    if x in ('csv', 'txt', 'comma', 'comma_separated', 'c'):
+        x = 'csv'
+    if x in ('json', 'jsn', 'j'):
+        x = 'json'
+    if x in ('ods', 'open_document_spreadsheet', 'o'):
+        x = 'ods'
+    if x in ('xml', 'html', 'htm'):
+        x = 'xml'
+    if x in ('dict','dictionary', 'd'):
+        x = 'dict'
+    if x not in ('xlsx', 'csv', 'json', 'ods', 'xml', 'dict'):
+        raise argparse.ArgumentTypeError(f"Invalid format specified: {x}. Valid options are Excel (xlsx), CSV (csv), JSON (json), ODS (ods), XML (xml), or Dictionary (dict).")
+    return x.lower()
+
+def metadata_helper(x: str):
+    x = x.lower()
+    if x in ('e', 'exact'):
+        x = 'exact'
+    if x in ('f', 'flat'):
+        x = 'flat'
+    if x not in ('exact', 'flat'):
+        raise argparse.ArgumentTypeError(f"Invalid metadata handling method: {x}. Valid options are 'exact' or 'flat'.")
+    return x.lower()

@@ -7,7 +7,8 @@ license: Apache License 2.0"
 """
 
 
-from preservica_modify.pres_modify import PreservicaMassMod
+from preservica_modify.presModify import PreservicaMassMod
+from preservica_modify.common import server_helper, fmthelper, metadata_helper
 import argparse, os, logging
 from importlib import metadata
 
@@ -30,9 +31,6 @@ def create_parser() -> argparse.ArgumentParser:
     program_group.add_argument("-del", "--delete", action="store_true",
                         help="Enable deletion of entities. This will delete any entities that are listed in the input spreadsheet with DELETE in Headers row marked TRUE."\
                         "WARNING: Use this option with extreme caution, as it will permanently delete entities from your Preservica system if used incorrectly.")
-    program_group.add_argument("-up", "--upload-mode", action="store_true",
-                        help="Enable upload mode. This will create new entities in Preservica based on the information provided in the input spreadsheet and any associated metadata files in the metadata directory. "\
-                        "WARNING: EXPERIMENTAL FEATURE. Use with caution.")
     program_group.add_argument("-clr","--blank-override", default = False, action="store_true",
                         help="By default, blank cells in the input spreadsheet will be ignored and will not override existing values in Preservica. "\
                         "Enabling this flag will cause blank cells to override existing values and effectively clear those fields in Preservica. "\
@@ -133,11 +131,11 @@ def run_cli(args: argparse.Namespace | None = None) -> None:
     logger.debug(f'Logging configured (level={logging.getLevelName(log_level)}, file={args.log_file or "stdout"})')
 
     if args.print_xmls:
-        PreservicaMassMod(input_file=args.input,
-                          metadata_dir=args.metadata_dir,
-                          dummy=True).print_local_xmls()
+        from preservica_modify.dataRetrieve import DataRetrieve
+        DataRetrieve().print_local_xmls()
         logger.info("XML metadata printed successfully! Exiting program.")
         raise SystemExit()
+    
     if args.convert_xmls:
         PreservicaMassMod(input_file=args.input,
                           metadata_dir=args.metadata_dir,
@@ -191,6 +189,7 @@ def run_cli(args: argparse.Namespace | None = None) -> None:
         raise ValueError(msg)
     if args.test_login:
         try:
+            PreservicaAuth()
             PreservicaMassMod(input_file=args.input,
                               username=args.username,
                               server=args.server,
@@ -222,7 +221,7 @@ def run_cli(args: argparse.Namespace | None = None) -> None:
             if not i.lower() == "y":
                 logger.info("You have chosen not to proceed... Good choice. Closing Program")
                 raise SystemExit()
-        
+
     PreservicaMassMod(input_file=args.input,
                       metadata_dir=args.metadata_dir,
                       blank_override=args.blank_override,
@@ -234,7 +233,6 @@ def run_cli(args: argparse.Namespace | None = None) -> None:
                       delete=args.delete,
                       tenant=args.tenant,
                       dummy=args.dummy,
-                      upload_mode=args.upload_mode,
                       options_file=args.options_file,
                       credentials=args.use_credentials,
                       use_keyring=args.use_keyring,
@@ -242,40 +240,7 @@ def run_cli(args: argparse.Namespace | None = None) -> None:
                       save_password_to_keyring=args.save_password,
                       column_sensitivity=args.column_sensitivity
                       ).main()
-  
-def server_helper(server_str: str) -> str:
-    if server_str.startswith("https://"):
-        return server_str.replace("https://", "", 1)
-    if server_str.startswith("http://"):
-        return server_str.replace("http://", "", 1)
-    return server_str
-def fmthelper(x: str):
-    x = x.lower()
-    if x in ('xlsx', 'xlsm', 'xltx', 'xltm', 'xlsb', 'xls', 'excel', 'xl'):
-        x = 'xlsx'
-    if x in ('csv', 'txt', 'comma', 'comma_separated', 'c'):
-        x = 'csv'
-    if x in ('json', 'jsn', 'j'):
-        x = 'json'
-    if x in ('ods', 'open_document_spreadsheet', 'o'):
-        x = 'ods'
-    if x in ('xml', 'html', 'htm'):
-        x = 'xml'
-    if x in ('dict','dictionary', 'd'):
-        x = 'dict'
-    if x not in ('xlsx', 'csv', 'json', 'ods', 'xml', 'dict'):
-        raise argparse.ArgumentTypeError(f"Invalid format specified: {x}. Valid options are Excel (xlsx), CSV (csv), JSON (json), ODS (ods), XML (xml), or Dictionary (dict).")
-    return x.lower()
 
-def metadata_helper(x: str):
-    x = x.lower()
-    if x in ('e', 'exact'):
-        x = 'exact'
-    if x in ('f', 'flat'):
-        x = 'flat'
-    if x not in ('exact', 'flat'):
-        raise argparse.ArgumentTypeError(f"Invalid metadata handling method: {x}. Valid options are 'exact' or 'flat'.")
-    return x.lower()
 
 def main() -> None:
     try:
