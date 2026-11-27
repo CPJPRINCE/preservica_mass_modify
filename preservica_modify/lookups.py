@@ -67,7 +67,7 @@ class LookupMixin:
                         key_name = str(header).rsplit(':',1)[-1]
                     else:
                         if self.ARCREF_FIELD in header:
-                            key_name = default_key if default_key else self.IDENTIFIER_DEFAULT
+                            key_name = self.ARCREF_CODE
                         elif self.ACCREF_FIELD in header:
                             key_name = self.ACCREF_CODE
                         elif self.IDENTIFIER_FIELD in header:
@@ -155,7 +155,32 @@ class LookupMixin:
         Delete Flag must also be set.
         """
         try:
-            return check_bool(self._cell(idx, self.DELETE_FIELD))    
+            return check_bool(_cell(self.df,idx, self.DELETE_FIELD))    
         except Exception:
             logger.exception('Failed to lookup delete flag')
+            raise
+
+
+    def delete_metadata_lookup(self, idx: Hashable):
+        """
+        Uses the pandas index to retrieve data from the "Delete Metadata" column. If True initiates a Delete All Metadata action.
+
+        Delete Metadata Flag must also be set.
+        """
+        try:
+            return check_bool(_cell(self.df, idx, self.DELETE_METADATA_FIELD))
+        except Exception:
+            logger.exception('Failed to lookup delete metadata flag')
+            raise
+
+    def delete_all_metadata_lookup(self, idx: Hashable):
+        """
+        Uses the pandas index to retrieve data from the "Delete All Metadata" column. If True initiates a Delete All Metadata action.
+
+        Delete All Metadata Flag must also be set.
+        """
+        try:
+            return check_bool(_cell(self.df, idx, self.DELETE_ALL_METADATA_FIELD))
+        except Exception:
+            logger.exception('Failed to lookup delete all metadata flag')
             raise

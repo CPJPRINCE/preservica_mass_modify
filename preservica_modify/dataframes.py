@@ -21,6 +21,8 @@ class DataFrameHandler:
         self.retention_flag = False
         self.dest_flag = False
         self.move_flag = False
+        self.delete_individual_metadata_flag = False
+        self.delete_all_metadata_flag = False
         if self.TITLE_FIELD in self.column_headers:
             self.title_flag = True
         if self.DESCRIPTION_FIELD in self.column_headers:
@@ -31,6 +33,14 @@ class DataFrameHandler:
             self.retention_flag = True
         if self.MOVETO_FIELD in self.column_headers:
             self.move_flag = True
+        if self.DELETE_METADATA_FIELD in self.column_headers and self.DELETE_ALL_METADATA_FIELD in self.column_headers:
+            logger.warning("Both 'Delete Metadata' and 'Delete All Metadata' fields are present in the input. Only use one.")
+            raise KeyError("Both 'Delete Metadata' and 'Delete All Metadata' fields are present. Only one should be used.")
+        if self.DELETE_METADATA_FIELD in self.column_headers:
+            self.delete_individual_metadata_flag = True
+        if self.DELETE_ALL_METADATA_FIELD in self.column_headers:
+            self.delete_all_metadata_flag = True
+
         logger.debug(f'Input Flags - Title: {self.title_flag}, Description: {self.description_flag}, Security: {self.security_flag}, Retention: {self.retention_flag}, Move: {self.move_flag}')
 
     def init_df(self) -> None:

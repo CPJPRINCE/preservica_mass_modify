@@ -205,3 +205,28 @@ class UpdatesMixin:
         except Exception:
             logger.exception('Failed to delete entity')
             raise
+
+    def delete_metadata_update(self, ent: Entity, schema: str):
+        """
+        Initiates a Delete Metadata action on the given entity for the specified schema.
+        """
+        try:
+            logger.info(f'Deleting metadata for Entity: {ent.reference}, {ent.title}, Schema: {schema}')
+            if self.dummy_flag is False:
+                self.entity.delete_metadata(ent, schema)
+        except Exception:
+            logger.exception(f'Failed to delete metadata for Entity: {ent.reference}, {ent.title}, Schema: {schema}')
+            raise
+
+    def delete_all_metadata_update(self, ent: Entity):
+        """
+        Initiates a Delete All Metadata action on the given entity.
+        """
+        try:
+            logger.info(f'Deleting all metadata for Entity: {ent.reference}, {ent.title}')
+            if self.dummy_flag is False:
+                for schema in set(ent.metadata.values()):
+                    self.entity.delete_metadata(ent, schema)
+        except Exception:
+            logger.exception(f'Failed to clear metadata for Entity: {ent.reference}, {ent.title}')
+            raise

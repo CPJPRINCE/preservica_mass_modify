@@ -19,12 +19,13 @@ classifiers = [
     "Operating System :: OS Independent",
     "Topic :: System :: Archiving"
     ]
-dependencies=["pypreservica","pandas","openpyxl","lxml","keyring"]
+dependencies=["pypreservica","pandas","openpyxl","lxml","keyring","tqdm"]
 [project.urls]
 Homepage = "https://github.com/CPJPRINCE/preservica_mass_modify"
 Issues = "https://github.com/CPJPRINCE/preservica_mass_modify/issues"
 [project.scripts]
 preservica_modify = "preservica_modify.cli:run_cli"
+preservica_upload = "preservica_modify.uploadcli:run_cli"
 
 [tool.setuptools.packages.find]
 where = ['.']

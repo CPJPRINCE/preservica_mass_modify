@@ -1,4 +1,6 @@
 
+from copy import deepcopy
+from importlib.resources import path
 from typing import Any, Dict, List, Hashable, Optional, Union
 import os
 from lxml import etree
@@ -12,21 +14,20 @@ logger = logging.getLogger(__name__)
 
 class DescriptiveMetadataHandler:
 
-    def init_generate_descriptive_metadata(self) -> List[Dict[str, Any]]:
+    def __init__(self, metadata_dir: str, column_headers: List[str]):
+        self.metadata_dir = metadata_dir
+        self.column_headers = column_headers
+
+    def init_schema_list(self) -> List[Dict[str, Any]]:
         """
-        Initialises the descriptive metadata by parsing the XML files in the metadata directory, generating a list of the elements and their namespaces, and comparing them against the column headers in the spreadsheet to filter out non-matching data.
-        The resulting list of matching elements is stored in self.xml_files for use in generating the descriptive metadata in the Opex manifest.
+        Retrieves the schema locations from the XML files in the metadata directory.
+        Returns a list of schema locations.
         """
         try:
-            self.xml_files: List[Dict[str, Any]] = []
+            self.schema_list: List[str] = []
             for file in os.scandir(self.metadata_dir):
-                list_xml: List[Dict[str,Any]] = []
                 if file.name.endswith('.xml'):
                     path = os.path.join(self.metadata_dir, file.name)
-                    """
-                    Generates info on the elements of the XML Files placed in the Metadata directory.
-                    Composed as a list of dictionaries.
-                    """
                     try:
                         xml_file = etree.parse(path)
                     except etree.XMLSyntaxError as e:
@@ -35,38 +36,87 @@ class DescriptiveMetadataHandler:
                     except FileNotFoundError as e:
                         logger.exception(f'XML file not found {file.name}: {e}')
                         raise
-                    root_element = etree.QName(xml_file.find('.'))
-                    root_element_ln = root_element.localname
-                    root_element_ns = root_element.namespace
-                    elements_list = []
-                    for elem in xml_file.findall('.//'):
-                        elem_path = xml_file.getelementpath(elem)
-                        elem = etree.QName(elem)
-                        elem_ln = elem.localname
-                        elem_ns = elem.namespace
-                        elem_ln_path = elem_path.replace(f"{{{elem_ns}}}", root_element_ln + ":")
-                        elements_list.append({"Name": root_element_ln + ":" + elem_ln, "XName": f"{{{elem_ns}}}{elem_ln}", "Namespace": elem_ns, "Path": elem_ln_path})
-                    
-                    """
-                    Compares the column headers in the Spreadsheet against the headers. Filters out non-matching data.
-                    """
-                    try:
-                        for elem_dict in elements_list:
-                            if elem_dict.get('Name') in self.column_headers or elem_dict.get('Path') in self.column_headers:
-                                list_xml.append({"Name": elem_dict.get('Name'), "XName": elem_dict.get('XName'), "Namespace": elem_dict.get('Namespace'), "Path": elem_dict.get('Path')})
-                    except KeyError as e:
-                        logger.exception(f'Key Error comparing XML elements to column headers for file {file.name}: {e}')
-                        raise
-                    except IndexError as e:
-                        logger.warning(f'Index Error comparing XML elements to column headers for file {file.name}: {e}')
-                    except Exception:
-                        logger.exception(f'Error comparing XML elements to column headers for file {file.name}')
-                        raise
-                if len(list_xml) > 0:
-                    self.xml_files.append({'data': list_xml, 'local_name': root_element_ln, 'local_ns': root_element_ns, 'xml_file': path})
-                    logger.info(f'Matching columns found in spreadsheet for XML file: {file.name}, added to metadata generation list.')
+                    schema = xml_file.getroot().attrib.get('{http://www.w3.org/2001/XMLSchema-instance}schemaLocation')
+                    self.schema_list.append(schema)
+            return self.schema_list
+        except Exception:
+            logger.exception('Failed to initialise delete metadata')
+            raise
+
+    def init_generate_descriptive_metadata(self, remote_xmls: bool = False) -> List[Dict[str, Any]]:
+        """
+        Initialises the descriptive metadata by parsing the XML files in the metadata directory, generating a list of the elements and their namespaces, and comparing them against the column headers in the spreadsheet to filter out non-matching data.
+        The resulting list of matching elements is stored in self.xml_files for use in generating the descriptive metadata in the Opex manifest.
+        """
+        try:
+            xml_templates = []
+            if remote_xmls:
+                for xml_doc in self.admin.xml_documents():
+                    if xml_doc.get("DocumentType") != "MetadataTemplate":
+                        continue
+                    name = xml_doc.get("Name")
+                    schema_uri = xml_doc.get("SchemaUri")
+                    if not schema_uri:
+                        logger.exception(f'SchemaUri not found for XML document {name}')
+                        raise ValueError(f'SchemaUri not found for XML document {name}')
+                    xml = self.admin.xml_document(schema_uri)
+                    if not xml:
+                        logger.exception(f'Failed to retrieve XML document for SchemaUri {schema_uri}')
+                        raise ValueError(f'Failed to retrieve XML document for SchemaUri {schema_uri}')
+                    tree = etree.fromstring(xml.encode('utf-8')).getroottree()
+                    xml_templates.append((name, tree))
+            else:
+                for file in os.scandir(self.metadata_dir):
+                    if file.name.endswith('.xml'):
+                        try:
+                            tree = etree.parse(file.path)
+                            xml_templates.append((file.path, tree))
+                        except etree.XMLSyntaxError as e:
+                            logger.exception(f'XML Syntax Error while parsing {file.name}: {e}')
+                            raise
+                        except FileNotFoundError as e:
+                            logger.exception(f'XML file not found {file.name}: {e}')
+                            raise
+
+            self.xml_files: List[Dict[str, Any]] = []
+            for name, xml_file in xml_templates:
+                list_elms_xml: List[Dict[str,Any]] = []
+                """
+                Generates info on the elements of the XML Files placed in the Metadata directory.
+                Composed as a list of dictionaries.
+                """
+                root_element = etree.QName(xml_file.find('.'))
+                root_element_ln = root_element.localname
+                root_element_ns = root_element.namespace
+                elements_list = []
+                for elem in xml_file.findall('.//'):
+                    elem_path = xml_file.getelementpath(elem)
+                    elem = etree.QName(elem)
+                    elem_ln = elem.localname
+                    elem_ns = elem.namespace
+                    elem_ln_path = elem_path.replace(f"{{{elem_ns}}}", root_element_ln + ":")
+                    elements_list.append({"Name": root_element_ln + ":" + elem_ln, "XName": f"{{{elem_ns}}}{elem_ln}", "Namespace": elem_ns, "Path": elem_ln_path})
+                
+                """
+                Compares the column headers in the Spreadsheet against the headers. Filters out non-matching data.
+                """
+                try:
+                    for elem_dict in elements_list:
+                        if elem_dict.get('Name') in self.column_headers or elem_dict.get('Path') in self.column_headers:
+                            list_elms_xml.append({"Name": elem_dict.get('Name'), "XName": elem_dict.get('XName'), "Namespace": elem_dict.get('Namespace'), "Path": elem_dict.get('Path')})
+                except KeyError as e:
+                    logger.exception(f'Key Error comparing XML elements to column headers for file {name}: {e}')
+                    raise
+                except IndexError as e:
+                    logger.warning(f'Index Error comparing XML elements to column headers for file {name}: {e}')
+                except Exception:
+                    logger.exception(f'Error comparing XML elements to column headers for file {name}')
+                    raise
+                if len(list_elms_xml) > 0:
+                    self.xml_files.append({'data': list_elms_xml, 'local_name': root_element_ln, 'local_ns': root_element_ns, 'xml_file': name, 'xml_tree': xml_file})
+                    logger.info(f'Matching columns found in spreadsheet for XML file: {name}, added to metadata generation list.')
                 else:
-                    logger.debug(f'No matching columns found in spreadsheet for XML file: {file.name}, skipping this file for metadata generation.')
+                    logger.debug(f'No matching columns found in spreadsheet for XML file: {name}, skipping this file for metadata generation.')
             return self.xml_files
         except FileNotFoundError:
             logger.exception(f'Metadata directory not found at path: {self.metadata_dir}')
@@ -100,7 +150,8 @@ class DescriptiveMetadataHandler:
                     logger.warning(f'No XML elements found for {xml_file.get("xml_file")}, skipping XML generation for this file.')
                     continue
                 else:
-                    xml_new = etree.parse(str(xml_file.get('xml_file')))
+                    xml_new = deepcopy(xml_file.get('xml_tree'))
+                    #xml_new = etree.parse(str(xml_file.get('xml_file')))
                     for elem_dict in xml_data:
                         if not isinstance(elem_dict, Dict):
                             logger.warning(f'Invalid element data for {elem_dict} in file {xml_file.get("xml_file")}, skipping this element.')

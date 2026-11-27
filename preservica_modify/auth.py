@@ -11,6 +11,22 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class PreservicaAuth:
+    def __init__(self, server: Optional[str], username: Optional[str], tenant: Optional[str] = None, credentials_file: Optional[str] = None, use_keyring: bool = False, save_password_to_keyring: bool = False, keyring_service: str = "preservica_modify", manager_username: Optional[str] = None, manager_password: Optional[str] = None):
+        self.server = server
+        self.username = username
+        self.tenant = tenant
+        self.credentials_file = credentials_file
+        self.use_keyring = use_keyring
+        self.save_password_to_keyring = save_password_to_keyring
+        self.password = None
+        self.manager_username = manager_username
+        self.manager_password = manager_password
+        self.entity = None
+        self.retention = None
+        self.upload = None
+        self.workflow = None
+        self.admin = None
+        self.keyring_service = keyring_service
 
     def _keyring_entry_name(self) -> str:
         tenant = self.tenant or "default"

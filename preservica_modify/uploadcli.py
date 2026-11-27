@@ -8,7 +8,11 @@ license: Apache License 2.0"
 
 
 from preservica_modify.presUpload import PreservicaMassUpload
+from preservica_modify.dataRetrieve import DataRetrieve, StandaloneDataRetrieve
 from preservica_modify.common import fmthelper, metadata_helper
+from preservica_modify.auth import PreservicaAuth
+from preservica_modify.progress import configure_cli_logging
+from tqdm.contrib.logging import logging_redirect_tqdm
 import argparse, os, logging
 from importlib import metadata
 
@@ -21,9 +25,9 @@ def _get_version():
         return "0.0.0"
 
 def create_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog = "Preservica_Mass_Modify", description="A tool for mass uploading files and entities to Preservica based on an input spreadsheet and optional metadata files.")
+    parser = argparse.ArgumentParser(prog = "Preservica_Mass_Upload", description="A tool for mass uploading files and entities to Preservica based on an input spreadsheet/data source and optional metadata files.")
     parser.add_argument("-v", "--version", action = 'version', version = '%(prog)s {version}'.format(version =_get_version()))
-    parser.add_argument("-i","--input", required = True,
+    parser.add_argument("input", nargs = "?",
                         help="Path to the input spreadsheet containing the upload instructions to be made. Must include a column for File Path, Upload Folder and Upload Type")
     
     program_group = parser.add_argument_group("Upload Options", "Options for controlling the upload process. ")
@@ -32,7 +36,7 @@ def create_parser() -> argparse.ArgumentParser:
                         help="Set the timeout value (in seconds) for upload operations. Default is 30 seconds.")
     program_group.add_argument("--check-parents", action="store_true", default=False,
                         help="Enable checking of parent folders before upload. Default is False.")
-    program_group.add_argument("--use-parent-assets", action="store_true", default=False,
+    program_group.add_argument("--use-parent-of-asset", action="store_true", default=False,
                         help="Enable the use of parent assets, IE if you enter an Asset Reference in the Upload Ref field it will utilse its parent, during the upload process. Default is False.")
     program_group.add_argument("--dummy", "--dummy-run", action="store_true",
                         help="Run the program in dummy mode (no actual changes will be made to the system, but all processing will occur as normal and a report will be generated at the end)")
@@ -92,9 +96,11 @@ def create_parser() -> argparse.ArgumentParser:
 
     config_group.add_argument("-opt", "--options-file", type=str, default=os.path.join(os.path.dirname(__file__),'options','options.properties'),
                         help="Path to the options.properties file containing any additional configuration options. If not specified, the program will look for an options.properties file in the same directory as the script.")
+    config_group.add_argument("--no-checkpoint-hash", dest="checkpoint_hash", action="store_false",
+                        help="Disable input hashing for resume checkpoints. Changes to the input file will not be detected.")
     config_group.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], 
                         help="Set the logging level")
-    config_group.add_argument("--log-file", nargs='?', default=None, help="Path to a file to write logs to. If not specified, logs will be written to stdout.")
+    config_group.add_argument("--log-file", nargs='?', default=None, help="Also write logs to this file; logs remain visible in the terminal.")
 
     return parser 
 
@@ -110,50 +116,59 @@ def run_cli(args: argparse.Namespace | None = None) -> None:
     except Exception:
         log_level = logging.INFO
     log_format = '%(asctime)s %(levelname)-8s [%(name)s] %(message)s'
-    if args.log_file:
-        logging.basicConfig(level=log_level, filename=args.log_file, filemode='a', format=log_format)
-    else:
-        logging.basicConfig(level=log_level, format=log_format)
+    configure_cli_logging(log_level, args.log_file, log_format)
     logger.debug(f'Logging configured (level={logging.getLevelName(log_level)}, file={args.log_file or "stdout"})')
 
     if args.print_xmls:
-        PreservicaMassUpload(input_file=args.input,
-                          metadata_dir=args.metadata_dir,
-                          dummy=True).print_local_xmls()
+        DataRetrieve(args.metadata_dir).print_local_xmls()
         logger.info("XML metadata printed successfully! Exiting program.")
         raise SystemExit()
     if args.convert_xmls:
-        PreservicaMassUpload(input_file=args.input,
-                          metadata_dir=args.metadata_dir,
-                          dummy=True).convert_local_xmls(args.convert_xmls)
+        DataRetrieve(args.metadata_dir).convert_local_xmls(args.convert_xmls)
         logger.info("XML metadata converted successfully! Exiting program.")
         raise SystemExit()
+
+    if not args.use_credentials and not args.server:
+        msg = "Server not provided. Please provide either a credentials file or a server URL for authentication, closing program..."
+        logger.error(msg)
+        raise ValueError(msg)
     
+    if not args.use_credentials and not args.username:
+        msg = "No authentication method provided. Please provide either a credentials file or a username for authentication, closing program..."
+        logger.error(msg)
+        raise ValueError(msg)
+
+    if args.test_login:
+        try:
+            PreservicaAuth(server=args.server,
+                           username=args.username,
+                           tenant=args.tenant,
+                           credentials_file=args.use_credentials,
+                           use_keyring=args.use_keyring,
+                           save_password_to_keyring=args.save_password,
+                           keyring_service=args.keyring_service,
+                           manager_username=args.manager_username).login_preservica()
+            logger.info("Login successful! Exiting program.")
+            raise SystemExit()
+        except Exception:
+            logger.exception("Login failed")
+            raise
+
     if args.print_remote_xmls:
-        PreservicaMassUpload(input_file=args.input,
-                          metadata_dir=args.metadata_dir,
-                          username=args.username,
-                          server=args.server,
-                          tenant=args.tenant,
-                          dummy=True,
-                          credentials=args.use_credentials,
-                          use_keyring=args.use_keyring,
-                          keyring_service=args.keyring_service,
-                          save_password_to_keyring=args.save_password).print_remote_xmls()
+        StandaloneDataRetrieve(args.metadata_dir, server=args.server, username=args.username,
+                               tenant=args.tenant, credentials_file=args.use_credentials,
+                               use_keyring=args.use_keyring, save_password_to_keyring=args.save_password,
+                               keyring_service=args.keyring_service,
+                               manager_username=args.manager_username).print_remote_xmls()
         logger.info("Remote XML metadata printed successfully! Exiting program.")
         raise SystemExit()
     
     if args.convert_remote_xmls:
-        PreservicaMassUpload(input_file=args.input,
-                          metadata_dir=args.metadata_dir,
-                          username=args.username,
-                          server=args.server,
-                          tenant=args.tenant,
-                          dummy=True,
-                          credentials=args.use_credentials,
-                          use_keyring=args.use_keyring,
-                          keyring_service=args.keyring_service,
-                          save_password_to_keyring=args.save_password).convert_remote_xmls(args.convert_remote_xmls)
+        StandaloneDataRetrieve(args.metadata_dir, server=args.server, username=args.username,
+                               tenant=args.tenant, credentials_file=args.use_credentials,
+                               use_keyring=args.use_keyring, save_password_to_keyring=args.save_password,
+                               keyring_service=args.keyring_service,
+                               manager_username=args.manager_username).convert_remote_xmls(args.convert_remote_xmls)
         logger.info("Remote XML metadata printed successfully! Exiting program.")
         raise SystemExit()
 
@@ -161,30 +176,6 @@ def run_cli(args: argparse.Namespace | None = None) -> None:
         logger.error("Invlaid file selected for input, closing program...")
         raise FileNotFoundError("Invalid input file")
 
-    if not args.use_credentials and not args.server:
-        msg = "Server not provided. Please provide either a credentials file or a server URL for authentication, closing program..."
-        logger.error(msg)
-        raise ValueError(msg)
-    if not args.use_credentials and not args.username:
-        msg = "No authentication method provided. Please provide either a credentials file or a username for authentication, closing program..."
-        logger.error(msg)
-        raise ValueError(msg)
-    if args.test_login:
-        try:
-            PreservicaMassUpload(input_file=args.input,
-                              username=args.username,
-                              server=args.server,
-                              tenant=args.tenant,
-                              dummy=True,
-                              credentials=args.use_credentials,
-                              use_keyring=args.use_keyring,
-                              keyring_service=args.keyring_service,
-                              save_password_to_keyring=args.save_password_to_keyring).login_preservica()
-            logger.info("Login successful! Exiting program.")
-            raise SystemExit()
-        except Exception:
-            logger.exception("Login failed")
-            raise
 
     if args.metadata_dir is not None:
         if not os.path.isdir(os.path.abspath(args.metadata_dir)):
@@ -193,24 +184,27 @@ def run_cli(args: argparse.Namespace | None = None) -> None:
             raise NotADirectoryError(msg)
 
 
-    PreservicaMassUpload(input_file=args.input,
-                      metadata_dir=args.metadata_dir,
-                      metadata=args.metadata,
-                      username=args.username,
-                      manager_username=args.manager_username,
-                      server=args.server,
-                      tenant=args.tenant,
-                      dummy=args.dummy,
-                      options_file=args.options_file,
-                      credentials=args.use_credentials,
-                      use_keyring=args.use_keyring,
-                      keyring_service=args.keyring_service,
-                      save_password_to_keyring=args.save_password,
-                      column_sensitivity=args.column_sensitivity,
-                      timeout=args.timeout,
-                      check_parents=args.check_parents,
-                      use_parent_assets=args.use_parent_assets
-                      ).main()
+    with logging_redirect_tqdm():
+        PreservicaMassUpload(input_file=args.input,
+                          metadata_dir=args.metadata_dir,
+                          metadata=args.metadata,
+                          username=args.username,
+                          manager_username=args.manager_username,
+                          server=args.server,
+                          tenant=args.tenant,
+                          dummy=args.dummy,
+                          options_file=args.options_file,
+                          credentials=args.use_credentials,
+                          use_keyring=args.use_keyring,
+                          keyring_service=args.keyring_service,
+                          save_password_to_keyring=args.save_password,
+                          column_sensitivity=args.column_sensitivity,
+                          timeout=args.timeout,
+                          verify_upload_ref=args.check_parents,
+                          use_parent_of_asset=args.use_parent_of_asset,
+                          checkpoint_hash=args.checkpoint_hash,
+                          show_progress=True
+                          ).main()
   
 def server_helper(server_str: str) -> str:
     if server_str.startswith("https://"):

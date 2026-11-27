@@ -2,11 +2,15 @@ import os
 import pandas as pd
 from lxml import etree
 import logging
-from preservica_modify.common import server_helper, export_csv, export_json, export_xl, export_ods
+from typing import Optional
+from preservica_modify.common import export_csv, export_json, export_xl, export_ods, export_xml
+from preservica_modify.auth import PreservicaAuth
 
 logger = logging.getLogger(__name__)
 
 class DataRetrieve:
+    def __init__(self, metadata_dir: str):
+        self.metadata_dir = metadata_dir
     
     def print_local_xmls(self) -> None:
         try:
@@ -138,3 +142,16 @@ class DataRetrieve:
         logger.info(f'Retention Policies retrieved')
         logger.debug(f'Retention Policies obtained: {self.policy_dict}')
         return self.policy_dict
+
+
+class StandaloneDataRetrieve(PreservicaAuth, DataRetrieve):
+    def __init__(self, metadata_dir: str, server: Optional[str], username: Optional[str],
+                 tenant: Optional[str] = None, credentials_file: Optional[str] = None,
+                 use_keyring: bool = False, save_password_to_keyring: bool = False,
+                 keyring_service: str = "preservica_modify",
+                 manager_username: Optional[str] = None):
+        DataRetrieve.__init__(self, metadata_dir)
+        PreservicaAuth.__init__(self, server=server, username=username, tenant=tenant,
+                                credentials_file=credentials_file, use_keyring=use_keyring,
+                                save_password_to_keyring=save_password_to_keyring,
+                                keyring_service=keyring_service, manager_username=manager_username)

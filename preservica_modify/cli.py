@@ -9,6 +9,11 @@ license: Apache License 2.0"
 
 from preservica_modify.presModify import PreservicaMassMod
 from preservica_modify.common import server_helper, fmthelper, metadata_helper
+from preservica_modify.dataRetrieve import DataRetrieve, StandaloneDataRetrieve
+from preservica_modify.auth import PreservicaAuth
+from preservica_modify.progress import configure_cli_logging
+from tqdm.contrib.logging import logging_redirect_tqdm
+
 import argparse, os, logging
 from importlib import metadata
 
@@ -23,14 +28,20 @@ def _get_version():
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog = "Preservica_Mass_Modify", description="A tool for making mass modifications to entities in Preservica based on an input spreadsheet and optional metadata files.")
     parser.add_argument("-v", "--version", action = 'version', version = '%(prog)s {version}'.format(version =_get_version()))
-    parser.add_argument("-i","--input", required = True,
+    parser.add_argument("input", nargs = "?",
                         help="Path to the input spreadsheet containing the modifications to be made. Must include a column for Entity Reference and Document Type (IO or Folder)")
     
     program_group = parser.add_argument_group("Modification Options", "Options for controlling the modification process. ")
                                               
-    program_group.add_argument("-del", "--delete", action="store_true",
+    program_group.add_argument("-del", "--delete", action="store_true", default=False,
                         help="Enable deletion of entities. This will delete any entities that are listed in the input spreadsheet with DELETE in Headers row marked TRUE."\
                         "WARNING: Use this option with extreme caution, as it will permanently delete entities from your Preservica system if used incorrectly.")
+    program_group.add_argument("--delete-metadata", action="store_true", default=False,
+                        help="Enable deletion of metadata. This will delete any metadata for entities that are listed in the input spreadsheet." \
+                        "When used with \"Delete Metadata\" in Headers row marked TRUE, it will only affect the metadata fields specified in the input spreadsheet for the corresponding entities." \
+                        "When used with \"Delete All Metadata\" in Headers row marked TRUE, it will delete all metadata for the corresponding entities regardless of the fields specified in the input spreadsheet." \
+                        "WARNING: Use this option with extreme caution, as it will permanently delete metadata from your Preservica system if used incorrectly.")
+
     program_group.add_argument("-clr","--blank-override", default = False, action="store_true",
                         help="By default, blank cells in the input spreadsheet will be ignored and will not override existing values in Preservica. "\
                         "Enabling this flag will cause blank cells to override existing values and effectively clear those fields in Preservica. "\
@@ -65,7 +76,9 @@ def create_parser() -> argparse.ArgumentParser:
                         help="Method for handling XML updates. If not specified, no XML updates will be made. " \
                         "If specified without a value, the 'exact' method will be used, which flattens the XML structure to only include elements being updated. " \
                         "If 'exact' is specified, the entire XML structure must be included in the metadata directory and it will be uploaded as-is (including any elements that are not being updated). ")
-    
+
+    metadata_group.add_argument("--use-remote_xmls", action="store_true",
+                        help="Use remote XML metadata files from the system instead of local files in the metadata directory.")
     metadata_group.add_argument("--print-xmls", action="store_true",
                         help="Print the XML metadata files in the metadata directory to the console. This is useful for verifying that the XML files are correctly formatted and can be parsed by the program before running the full modification process.")
     metadata_group.add_argument("--print-remote-xmls", action="store_true",
@@ -106,9 +119,11 @@ def create_parser() -> argparse.ArgumentParser:
 
     config_group.add_argument("-opt", "--options-file", type=str, default=os.path.join(os.path.dirname(__file__),'options','options.properties'),
                         help="Path to the options.properties file containing any additional configuration options. If not specified, the program will look for an options.properties file in the same directory as the script.")
+    config_group.add_argument("--no-checkpoint-hash", dest="checkpoint_hash", action="store_false",
+                        help="Disable input hashing for resume checkpoints. Changes to the input file will not be detected.")
     config_group.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], 
                         help="Set the logging level")
-    config_group.add_argument("--log-file", nargs='?', default=None, help="Path to a file to write logs to. If not specified, logs will be written to stdout.")
+    config_group.add_argument("--log-file", nargs='?', default=None, help="Also write logs to this file; logs remain visible in the terminal.")
 
     return parser 
 
@@ -124,56 +139,18 @@ def run_cli(args: argparse.Namespace | None = None) -> None:
     except Exception:
         log_level = logging.INFO
     log_format = '%(asctime)s %(levelname)-8s [%(name)s] %(message)s'
-    if args.log_file:
-        logging.basicConfig(level=log_level, filename=args.log_file, filemode='a', format=log_format)
-    else:
-        logging.basicConfig(level=log_level, format=log_format)
+    configure_cli_logging(log_level, args.log_file, log_format)
     logger.debug(f'Logging configured (level={logging.getLevelName(log_level)}, file={args.log_file or "stdout"})')
 
     if args.print_xmls:
-        from preservica_modify.dataRetrieve import DataRetrieve
-        DataRetrieve().print_local_xmls()
+        DataRetrieve(args.metadata_dir).print_local_xmls()
         logger.info("XML metadata printed successfully! Exiting program.")
         raise SystemExit()
-    
+
     if args.convert_xmls:
-        PreservicaMassMod(input_file=args.input,
-                          metadata_dir=args.metadata_dir,
-                          dummy=True).convert_local_xmls(args.convert_xmls)
+        DataRetrieve(args.metadata_dir).convert_local_xmls(args.convert_xmls)
         logger.info("XML metadata converted successfully! Exiting program.")
         raise SystemExit()
-    
-    if args.print_remote_xmls:
-        PreservicaMassMod(input_file=args.input,
-                          metadata_dir=args.metadata_dir,
-                          username=args.username,
-                          server=args.server,
-                          tenant=args.tenant,
-                          dummy=True,
-                          credentials=args.use_credentials,
-                          use_keyring=args.use_keyring,
-                          keyring_service=args.keyring_service,
-                          save_password_to_keyring=args.save_password).print_remote_xmls()
-        logger.info("Remote XML metadata printed successfully! Exiting program.")
-        raise SystemExit()
-    
-    if args.convert_remote_xmls:
-        PreservicaMassMod(input_file=args.input,
-                          metadata_dir=args.metadata_dir,
-                          username=args.username,
-                          server=args.server,
-                          tenant=args.tenant,
-                          dummy=True,
-                          credentials=args.use_credentials,
-                          use_keyring=args.use_keyring,
-                          keyring_service=args.keyring_service,
-                          save_password_to_keyring=args.save_password).convert_remote_xmls(args.convert_remote_xmls)
-        logger.info("Remote XML metadata printed successfully! Exiting program.")
-        raise SystemExit()
-
-    if not os.path.isfile(os.path.abspath(args.input)):
-        logger.error("Invlaid file selected for input, closing program...")
-        raise FileNotFoundError("Invalid input file")
 
     if not args.use_credentials and not args.server:
         msg = "Server not provided. Please provide either a credentials file or a server URL for authentication, closing program..."
@@ -183,27 +160,47 @@ def run_cli(args: argparse.Namespace | None = None) -> None:
         msg = "No authentication method provided. Please provide either a credentials file or a username for authentication, closing program..."
         logger.error(msg)
         raise ValueError(msg)
+
+    if args.test_login:
+        try:
+            PreservicaAuth(server=args.server,
+                           username=args.username,
+                           tenant=args.tenant,
+                           credentials_file=args.use_credentials,
+                           manager_username=args.manager_username,
+                           use_keyring=args.use_keyring,
+                           save_password_to_keyring=args.save_password,
+                           keyring_service=args.keyring_service).login_preservica()
+            logger.info("Login successful!")
+            raise SystemExit()
+        except Exception:
+            logger.exception("Login failed!")
+            raise
+
+    if args.print_remote_xmls:
+        StandaloneDataRetrieve(args.metadata_dir, server=args.server, username=args.username,
+                               tenant=args.tenant, credentials_file=args.use_credentials,
+                               use_keyring=args.use_keyring, save_password_to_keyring=args.save_password,
+                               keyring_service=args.keyring_service).print_remote_xmls()
+        logger.info("Remote XML metadata printed successfully! Exiting program.")
+        raise SystemExit()
+    
+    if args.convert_remote_xmls:
+        StandaloneDataRetrieve(args.metadata_dir, server=args.server, username=args.username,
+                               tenant=args.tenant, credentials_file=args.use_credentials,
+                               use_keyring=args.use_keyring, save_password_to_keyring=args.save_password,
+                               keyring_service=args.keyring_service).convert_remote_xmls(args.convert_remote_xmls)
+        logger.info("Remote XML metadata printed successfully! Exiting program.")
+        raise SystemExit()
+
+    if not os.path.isfile(os.path.abspath(args.input)):
+        logger.error("Invlaid file selected for input, closing program...")
+        raise FileNotFoundError("Invalid input file")
+
     if args.delete and not (args.manager_username or args.use_credentials):
         msg = "Delete Option requires a Manager Username or Credentials file for authentication. Please provide a credentials file or remove the delete option."
         logger.error(msg)
         raise ValueError(msg)
-    if args.test_login:
-        try:
-            PreservicaAuth()
-            PreservicaMassMod(input_file=args.input,
-                              username=args.username,
-                              server=args.server,
-                              tenant=args.tenant,
-                              dummy=True,
-                              credentials=args.use_credentials,
-                              use_keyring=args.use_keyring,
-                              keyring_service=args.keyring_service,
-                              save_password_to_keyring=args.save_password_to_keyring).login_preservica()
-            logger.info("Login successful! Exiting program.")
-            raise SystemExit()
-        except Exception:
-            logger.exception("Login failed")
-            raise
 
     if args.metadata_dir is not None:
         if not os.path.isdir(os.path.abspath(args.metadata_dir)):
@@ -222,24 +219,29 @@ def run_cli(args: argparse.Namespace | None = None) -> None:
                 logger.info("You have chosen not to proceed... Good choice. Closing Program")
                 raise SystemExit()
 
-    PreservicaMassMod(input_file=args.input,
-                      metadata_dir=args.metadata_dir,
-                      blank_override=args.blank_override,
-                      metadata=args.metadata,
-                      descendants=args.descendants,
-                      username=args.username,
-                      manager_username=args.manager_username,
-                      server=args.server,
-                      delete=args.delete,
-                      tenant=args.tenant,
-                      dummy=args.dummy,
-                      options_file=args.options_file,
-                      credentials=args.use_credentials,
-                      use_keyring=args.use_keyring,
-                      keyring_service=args.keyring_service,
-                      save_password_to_keyring=args.save_password,
-                      column_sensitivity=args.column_sensitivity
-                      ).main()
+    with logging_redirect_tqdm():
+        PreservicaMassMod(input_file=args.input,
+                          metadata_dir=args.metadata_dir,
+                          delete_metadata_flag=args.delete_metadata,
+                          blank_override=args.blank_override,
+                          metadata=args.metadata,
+                          descendants=args.descendants,
+                          username=args.username,
+                          manager_username=args.manager_username,
+                          server=args.server,
+                          delete=args.delete,
+                          tenant=args.tenant,
+                          dummy=args.dummy,
+                          options_file=args.options_file,
+                          credentials=args.use_credentials,
+                          use_keyring=args.use_keyring,
+                          keyring_service=args.keyring_service,
+                          save_password_to_keyring=args.save_password,
+                          column_sensitivity=args.column_sensitivity,
+                          use_remote_xmls=args.use_remote_xmls,
+                          checkpoint_hash=args.checkpoint_hash,
+                          show_progress=True
+                          ).main()
 
 
 def main() -> None:

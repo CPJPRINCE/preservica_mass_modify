@@ -5,9 +5,9 @@ Author: Christopher Prince
 license: Apache License 2.0"
 """
 
-import time, os, sys
+import time, os
 from preservica_modify.common import check_nan
-from pyPreservica.uploadAPI import UploadProgressCallback, complex_asset_package, simple_asset_package
+from pyPreservica.uploadAPI import complex_asset_package, simple_asset_package
 from typing import Optional, Hashable
 from lxml import etree
 import configparser
@@ -21,6 +21,7 @@ from preservica_modify.dataframes import DataFrameHandler
 from preservica_modify.descMetadata import DescriptiveMetadataHandler
 from preservica_modify.updates import UpdatesMixin
 from preservica_modify.lookups import LookupMixin
+from preservica_modify.progress import row_progress, upload_progress
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +48,11 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
                  disable_continue: bool = False,
                  column_sensitivity: bool = False,
                  options_file: str = os.path.join(os.path.dirname(__file__),'options', 'options.properties'),
-                 check_parents: bool = False,
-                 use_parent_assets: bool = False,
-                 timeout: int = 60):
+                 verify_upload_ref: bool = False,
+                 use_parent_of_asset: bool = False,
+                 timeout: int = 60,
+                 checkpoint_hash: bool = True,
+                 show_progress: bool = False):
         
         self.metadata_dir = metadata_dir
         self.metadata_flag = metadata
@@ -77,16 +80,18 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
         self.save_password_to_keyring = save_password_to_keyring
         
         self.disable_continue = disable_continue
+        self.checkpoint_hash = checkpoint_hash
+        self.show_progress = show_progress
         self.column_sensitivity = column_sensitivity
 
         if options_file is None:
-            options_file = os.path.join(os.path.dirname(__file__),'options','uploadopts.properties')
+            options_file = os.path.join(os.path.dirname(__file__),'options','upload options.properties')
         self.parse_config(options_file=os.path.abspath(options_file), column_sensitivity=self.column_sensitivity)
 
         self.xnames: list[str] = []
 
-        self.use_parent_assets = use_parent_assets
-        self.check_parents = check_parents
+        self.use_parent_of_asset = use_parent_of_asset
+        self.verify_upload_ref = verify_upload_ref
         self.TIMEOUT = timeout
 
         self.blank_override = False # not used in uploads
@@ -95,9 +100,9 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
         config = configparser.ConfigParser()
         read_config = config.read(options_file, encoding='utf-8')
         if not read_config:
-            logger.warning(f"Options file not found or not readable: {options_file}. Using defaults.")
+            logger.warning(f"Upload Options file not found or not readable: {options_file}. Using defaults.")
 
-        section = config['options'] if 'options' in config else {}
+        section = config['upload options'] if 'upload options' in config else {}
 
         if column_sensitivity:
             section = {k:v.lower() for k,v in section.items()}
@@ -105,8 +110,8 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
 #        self.ENTITY_REF=section.get('ENTITY_REF', 'Entity Ref')
 #        self.DOCUMENT_TYPE=section.get('DOCUMENT_TYPE', 'Document type')
 
-        self.UPLOAD_REF=section.get('UPLOAD_REF', 'Upload to' if 'Upload to' in section else 'Entity Ref')
-        self.UPLOAD_TYPE=section.get('UPLOAD_TYPE', 'Upload type' if 'Upload type' in section else 'Document type')
+        self.UPLOAD_REF=section.get('UPLOAD_REF', 'Entity Ref' if 'Entity Ref' in section else 'Upload Ref')
+        self.UPLOAD_TYPE=section.get('UPLOAD_TYPE', 'Document type' if 'Document type' in section else 'Upload type')
         self.TITLE_FIELD=section.get('TITLE_FIELD', 'Title')
         self.DESCRIPTION_FIELD=section.get('DESCRIPTION_FIELD', 'Description')
         self.SECURITY_FIELD=section.get('SECURITY_FIELD', 'Security')
@@ -115,8 +120,11 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
         self.IDENTIFIER_DEFAULT=section.get('IDENTIFIER_DEFAULT', 'code')
         self.FILE_PATH=section.get('FILE_PATH', 'FullName')       
 
+        # Not used in Upload Program - prevents AttributeError
         self.MOVETO_FIELD=section.get('MOVETO_FIELD', None)
-        
+        self.DELETE_METADATA_FIELD=section.get('DELETE_METADATA_FIELD', None)
+        self.DELETE_ALL_METADATA_FIELD=section.get('DELETE_ALL_METADATA_FIELD', None)
+
         self.UPLOAD_TYPE_FIELD=section.get('UPLOAD_TYPE_FIELD', 'Upload type')
         self.PAX_PRES_FIELD=section.get('PAX_PRES_FIELD', 'Preservation')
         self.PAX_ACCESS_FIELD=section.get('PAX_ACCESS_FIELD', 'Access')
@@ -125,7 +133,7 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
         self.ARCREF_FIELD=section.get('ARCREF_FIELD', 'Archive_Reference')
         self.ACCREF_FIELD=section.get('ACCREF_FIELD', 'Accession_Reference')
         self.ACCREF_CODE=section.get('ACCREF_CODE', 'accref')
-        
+
         logger.debug(f'Configuration loaded: {section}')
 
 
@@ -170,6 +178,8 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
             if xml_data is not None:
                 for ns,new_xml in xml_data.items():
                     self.xml_update(new_folder, ns, new_xml)
+        else:
+            new_folder = None
         return new_folder
 
     def pa_create(self, upload_folder: str, title: str, description: Optional[str] = None, security: Optional[str] = None, ident_dict: Optional[dict] = None, xml_data: Optional[dict] = None, retention_policy: Optional[str]=None, ):
@@ -189,6 +199,8 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
             if xml_data is not None:
                 for ns,new_xml in xml_data.items():
                     self.xml_update(new_pa, ns, new_xml)
+        else:
+            new_pa = None
         return new_pa
 
     def so_upload(self, idx: int, upload_folder: str, title: str, description: Optional[str] = None, security: Optional[str] = None, ident_dict: Optional[dict] = None, xml_data: Optional[dict] = None, retention_policy: Optional[str]=None):
@@ -218,14 +230,16 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
                                                 security_tag=security,
                                                 identifiers=ident_dict,
                                                 AssetMetadata=xml_data)
-                    callback = UploadProgressCallback(folder_path)
-                    self.upload.upload_zip_package(sip, folder=upload_folder, callback=callback)
+                    with upload_progress(sip, self.show_progress) as callback:
+                        self.upload.upload_zip_package(sip, folder=upload_folder, callback=callback)
                     if self.retention_flag is True:
                         time.sleep(self.TIMEOUT)
                         self.retention_update(sip, retention_policy)
                     return upload_folder
+                else:
+                    logger.warning(f'Path marked as SO-Upload is not a valid file or folder path. Ignoring entry...')
+                    return None
             else:
-                logger.warning(f'Path marked as SO-Upload is not a valid file or folder path. Ignoring entry...')
                 return None
         else:
             logger.exception(f'The upload path column: {self.FILE_PATH} is not present in the spreadsheet; please ensure it is with a valid path to folder')
@@ -248,7 +262,8 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
                             f_list = [f.path for f in os.scandir(p) if os.path.isfile(f)]
                             d_list = [d.path for d in os.scandir(p) if os.path.isdir(d)]
                             sip = complex_asset_package(f_list, parent_folder=parent_folder)
-                            upload = self.upload.upload_zip_package(sip, folder=parent_folder, callback=UploadProgressCallback(sip))
+                            with upload_progress(sip, self.show_progress) as callback:
+                                upload = self.upload.upload_zip_package(sip, folder=parent_folder, callback=callback)
                             self.upload_loop(d_list, upload)
                 
                 logger.info(f'Processing folder path: {folder_path}')
@@ -274,10 +289,16 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
                 logger.info(f'Uploading folder: {folder_path} to Preservica folder: {upload_folder}')
                 logger.debug(f'Folder path: {folder_path}, Upload folder: {upload_folder}')
                 if self.dummy_flag is False:
-                    self.upload.crawl_filesystem(folder_path,preservica_parent=upload_folder,callback=UploadProgressCallback(folder_path))
+                    self.upload.crawl_filesystem(
+                        folder_path, bucket_name=None, preservica_parent=upload_folder,
+                        callback=not self.show_progress,
+                    )
+                    return upload_folder
+                else:
+                    return None
             else:
                 logger.warning(f'Folder marked as SO-Crawl. Ignoring file...')
-                pass
+                return None
         else:
             logger.exception(f'The upload path column: {self.FILE_PATH} is not present in the spreadsheet; please ensure it is with a valid path to folder')
             raise Exception(f'The upload path column: {self.FILE_PATH} is not present in the spreadsheet; please ensure it is with a valid path to folder')
@@ -286,27 +307,31 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
         
         if self.FILE_PATH in self.column_headers:
             file_path = str(self.df[self.FILE_PATH].loc[idx])
-            if check_nan(file_path):
+            if not check_nan(file_path):
                 logger.exception(f'The upload path for {idx} is set to blank, please ensure a valid path is given')
                 raise Exception(f'The upload path for {idx} is set to blank, please ensure a valid path is given')
             if os.path.isfile(file_path):
-                if not file_path.endswith('.zip'):
-                    sip = simple_asset_package(preservation_file=file_path,parent_folder=upload_folder,
-                                               title=title,
-                                               description=description,
-                                               security_tag=security,
-                                               identifiers=ident_dict,
-                                               AssetMetadata=xml_data)
+                if self.dummy_flag is False:
+                    if not file_path.endswith('.zip'):
+                        sip = simple_asset_package(preservation_file=file_path,parent_folder=upload_folder,
+                                                title=title,
+                                                description=description,
+                                                security_tag=security,
+                                                identifiers=ident_dict,
+                                                AssetMetadata=xml_data)
+                    else:
+                        sip = file_path
+                    with upload_progress(sip, self.show_progress) as callback:
+                        new_io = self.upload.upload_zip_package(sip, folder=upload_folder, callback=callback)
+                    if self.retention_flag is True:
+                        time.sleep(self.TIMEOUT)
+                        self.retention_update(new_io, retention_policy)
+                    return upload_folder
                 else:
-                    sip = file_path
-                new_io = self.upload.upload_zip_package(sip, folder=upload_folder, callback=UploadProgressCallback(sip))
-                if self.retention_flag is True:
-                    time.sleep(self.TIMEOUT)
-                    self.retention_update(new_io, retention_policy)
-                return upload_folder
+                    return None
             else:
                 logger.warning(f'File marked as IO-Upload. Ignoring folder...')
-                pass
+                return None
         else:
             logger.exception(f'The upload path column: {self.FILE_PATH} is not present in the spreadsheet; please ensure it is with a valid path to folder')
             raise Exception(f'The upload path column: {self.FILE_PATH} is not present in the spreadsheet; please ensure it is with a valid path to folder')
@@ -315,22 +340,26 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
         
         if self.FILE_PATH in self.column_headers:
             file_path = str(self.df[self.FILE_PATH].loc[idx])
-            if check_nan(file_path):
+            if not check_nan(file_path):
                 logger.exception(f'The upload path for {idx} is set to blank, please ensure a valid path is given')
                 raise Exception(f'The upload path for {idx} is set to blank, please ensure a valid path is given')
             if os.path.isfile(file_path):
-                if not file_path.endswith('.zip'):
-                    sip = self.pax_create(idx, title, description, security, ident_dict, xml_data)
+                if self.dummy_flag is False:
+                    if not file_path.endswith('.zip'):
+                        sip = self.pax_create(idx, title, description, security, ident_dict, xml_data)
+                    else:
+                        sip = file_path
+                    with upload_progress(sip, self.show_progress) as callback:
+                        new_io = self.upload.upload_zip_package(sip, folder=upload_folder, callback=callback)
+                    if self.retention_flag is True:
+                        time.sleep(self.TIMEOUT)
+                        self.retention_update(new_io, retention_policy)
+                    return upload_folder
                 else:
-                    sip = file_path
-                new_io = self.upload.upload_zip_package(sip, folder=upload_folder, callback=UploadProgressCallback(sip))
-                if self.retention_flag is True:
-                    time.sleep(self.TIMEOUT)
-                    self.retention_update(new_io, retention_policy)
-                return upload_folder
+                    return None
             else:
                 logger.warning(f'File marked as IO-Upload. Ignoring folder...')
-                pass
+                return None
         else:
             logger.exception(f'The upload path column: {self.FILE_PATH} is not present in the spreadsheet; please ensure it is with a valid path to folder')
             raise Exception(f'The upload path column: {self.FILE_PATH} is not present in the spreadsheet; please ensure it is with a valid path to folder')
@@ -371,54 +400,62 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
         Method to process rows from the data dictionary, handling entity references and document types.
         """
         try:
-            last_ref = None
-            keys, start_pos = self._process_continue_token(data_dict)
-            for idx in keys[start_pos:]:
-                reference_dict = data_dict.get(idx)
-                if reference_dict is not None:
-                    upload_ref = check_nan(reference_dict.get(self.UPLOAD_REF))
-                    if upload_ref is None:
-                        logger.warning(f'No reference found for index: {idx}, skipping to next row.')
-                        continue
-                    upload_type = reference_dict.get(self.UPLOAD_TYPE)
-                    if upload_ref is None or str(upload_ref).lower() == "use parent" and upload_type is not None:
-                        if last_ref is None:
-                            logger.error('No previous reference found. Please provide a reference in at least the first row.')
-                            raise ValueError('No previous reference found. Please provide a reference in at least the first row.')
-                        self._process_upload_row(idx, str(last_ref), str(upload_type))
-                    else:
+            keys = list(data_dict.keys())
+            input_hash: Optional[str] = None
+            if self.disable_continue:
+                start_pos, last_ref = 0, None
+            else:
+                input_hash = self._input_hash()
+                start_pos, last_ref = self._load_checkpoint("upload", keys, input_hash)
+            with row_progress(len(keys), start_pos, "Upload rows", self.show_progress) as progress:
+                for position in range(start_pos, len(keys)):
+                    idx = keys[position]
+                    reference_dict = data_dict.get(idx)
+                    if reference_dict is not None:
+                        upload_ref = check_nan(reference_dict.get(self.UPLOAD_REF))
+                        upload_type = reference_dict.get(self.UPLOAD_TYPE)
+                        if upload_ref is None or str(upload_ref).strip().lower() in {"", "use parent"}:
+                            if last_ref is None:
+                                raise ValueError(
+                                    f"No previously created SO is available for row {idx}. "
+                                    "Provide an explicit upload reference or create an SO first."
+                                )
+                            upload_ref = last_ref
                         logger.info(f"Processing Row Index: {idx}, Uploading to: {upload_ref}")
-                        last_ref = self._process_upload_row(idx, upload_ref, str(upload_type))
-                else:
-                    logger.error(f'No data found for index: {idx}')
-                    raise ValueError(f'No data found for index: {idx}')
+                        if not self.disable_continue:
+                            self._save_checkpoint("upload", position, True, input_hash, last_ref)
+                        result = self._process_upload_row(idx, str(upload_ref), str(upload_type))
+                        if upload_type == "SO-Create":
+                            if result is None and self.dummy_flag:
+                                last_ref = None
+                            else:
+                                created_ref = getattr(result, "reference", None)
+                                if not isinstance(created_ref, str) or not created_ref.strip():
+                                    raise ValueError(f"SO creation for row {idx} returned no folder reference")
+                                last_ref = created_ref
+                        if not self.disable_continue:
+                            self._save_checkpoint("upload", position + 1, False, input_hash, last_ref)
+                        progress.update(1)
+                    else:
+                        logger.error(f'No data found for index: {idx}')
+                        raise ValueError(f'No data found for index: {idx}')
         except KeyboardInterrupt:
-            logger.warning('Process interrupted by user during upload mode, exiting...')
-            if self.disable_continue is False:
-                self._save_continue_token(self.input_file, idx)
+            logger.warning('Upload interrupted. Check Preservica before resuming an in-progress row.')
             raise KeyboardInterrupt('Process interrupted by user, exiting...') from None
         except Exception:
             logger.exception('Error running upload mode')
             raise
 
-    def _process_fetch_parent(self, upload_folder: str):
+    def _process_verify_upload_ref(self, upload_folder: str):
         """
-        Method to fetch the parent entity based on the upload folder and document type.
+        Method to verify the entity as a valid folder to upload to.
         """
         try:
-            try: 
-                parent_ent = self.entity.folder(upload_folder)
-                logger.debug(f'Fetched parent entity as folder for upload folder: {upload_folder}')
-            except Exception:
-                if self.use_parent_assets:
-                    parent_ent = self.entity.asset(upload_folder).parent()
-                    logger.debug(f'Failed to fetch parent entity as folder for upload folder: {upload_folder}, trying as asset parent.')
-                else:
-                    logger.error(f'Failed to fetch parent entity as folder for upload folder: {upload_folder} and parent assets not used. Skiping Entry')
-                    return None 
+            parent_ent = self.entity.folder(upload_folder).reference
+            logger.info(f'Verified entity: {parent_ent} for upload folder: {upload_folder}')
             return parent_ent
-        except Exception as e:
-            logger.error(f'Error fetching parent entity for folder {upload_folder}: {e}')
+        except Exception:
+            logger.warning(f'Failed to verify entity: {upload_folder} as folder. Skiping Entry')
             return None
         
 
@@ -429,15 +466,18 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
         time.sleep(self.TIMEOUT)
 
         try:
-            if self.check_parents:
-                self._process_fetch_parent(upload_folder)
+            if self.verify_upload_ref:
+                upload_folder = self._process_verify_upload_ref(upload_folder)
+            if self.use_parent_of_asset is True and self._process_verify_upload_ref(upload_folder) is None:
+                upload_folder = self.entity.asset(upload_folder).parent
+                logger.info(f'Entity: {upload_folder}, is an Asset. As use_parent_of_asset is True, using its parent entity.')
             title, description, security = self.xip_lookup(idx)
             if title is None:
                 title = self.df[self.FILE_PATH].loc[idx].split(os.sep)[-1]
             ident_dict = self.ident_lookup(idx, self.IDENTIFIER_DEFAULT)
             retention_policy = self.retention_lookup(idx)
+            xml_dict = {}
             if self.metadata_flag is not None:    
-                xml_dict = {}
                 xmls = self.generate_descriptive_metadata(idx, self.xml_files)
                 if xmls is not None:
                     for x in xmls:
@@ -445,7 +485,7 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
                         assert isinstance(ns, str)
                         new_xml = x.get(ns)
                         assert isinstance(new_xml, etree._ElementTree)
-                        xml_dict.update({ns: new_xml})                
+                        xml_dict.update({ns: new_xml})
             
             if upload_type == "PAX-Create":
                 new_pax = self.pax_create(idx, title, description, security, ident_dict, xml_dict)
@@ -516,7 +556,9 @@ class PreservicaMassUpload(PreservicaAuth, ContinueTokenHandler, DataFrameHandle
                 logger.exception('Error setting up upload mode')
                 raise
             self._process_rows(data_dict)
-            self._remove_continue_token(self.input_file)
+            if not self.disable_continue:
+                self._remove_checkpoint("upload")
+
             logger.info('Process completed.')
         except KeyError as e:
             logger.exception(f'Key Error: {e}.')

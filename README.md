@@ -47,7 +47,7 @@ pip install -U preservica_mass_modify
 
 ```bash
 preservica_modify \
-	-i /path/to/updates.xlsx \
+	/path/to/updates.xlsx \
 	-u your.username@example.com \
 	-s yourtenant.preservica.com
 ```
@@ -56,7 +56,7 @@ preservica_modify \
 
 ```bash
 preservica_modify \
-	-i /path/to/updates.xlsx \
+	/path/to/updates.xlsx \
 	--use-credentials /path/to/credentials.properties
 ```
 
@@ -98,6 +98,12 @@ Typical use cases:
 - Continue token support to resume after interruption
 - Dummy mode for dry-run style validation of flow
 
+Interactive CLI runs show completed spreadsheet rows, including skipped rows,
+and upload runs also show bytes transferred for direct packages. This reports
+transfer progress, not the subsequent Preservica ingest. SO-Crawl shows row
+progress and logs only. Progress bars are hidden when stderr is not a terminal.
+Logs remain visible above the bars; `--log-file` also writes them to the file.
+
 ## Authentication
 
 You can authenticate using either:
@@ -122,7 +128,7 @@ tenant=optional-tenant
 
 ```bash
 preservica_modify \
-	-i /path/to/updates.xlsx \
+	/path/to/updates.xlsx \
 	-u your.username@example.com \
 	-s yourtenant.preservica.com \
 	--use-keyring \
@@ -186,16 +192,20 @@ XML templates can be read from local metadata directory or from your Preservica 
 ### Print/Convert Local XML Templates
 
 ```bash
-preservica_modify -i /path/to/input.xlsx --print-xmls
-preservica_modify -i /path/to/input.xlsx --convert-xmls xlsx
+preservica_modify --print-xmls
+preservica_modify --convert-xmls xlsx
 ```
 
 ### Print/Convert Remote XML Templates
 
 ```bash
-preservica_modify -i /path/to/input.xlsx -u user -s server --print-remote-xmls
-preservica_modify -i /path/to/input.xlsx -u user -s server --convert-remote-xmls csv
+preservica_modify -u user -s server --print-remote-xmls
+preservica_modify -u user -s server --convert-remote-xmls csv
 ```
+
+For Python callers, `PreservicaMassMod` and `PreservicaMassUpload` retain
+`print_remote_xmls()` and `convert_remote_xmls(output_format)`, using the
+credentials configured on the instance.
 
 ### Exact vs Flat Matching
 
@@ -203,10 +213,10 @@ Enable metadata mode with `-m` / `--metadata`:
 
 ```bash
 # Defaults to exact if -m supplied without value
-preservica_modify -i /path/to/input.xlsx -u user -s server -m
+preservica_modify /path/to/input.xlsx -u user -s server -m
 
-preservica_modify -i /path/to/input.xlsx -u user -s server -m exact
-preservica_modify -i /path/to/input.xlsx -u user -s server -m flat
+preservica_modify /path/to/input.xlsx -u user -s server -m exact
+preservica_modify /path/to/input.xlsx -u user -s server -m flat
 ```
 
 - `exact`: path-based matching for more deterministic updates
@@ -229,20 +239,40 @@ Example:
 
 ```bash
 preservica_modify \
-	-i /path/to/input.xlsx \
+	/path/to/input.xlsx \
 	-u user -s server \
 	-d include-assets include-xml include-identifiers
 ```
 
 ## Continue/Resume Behaviour
 
-The tool stores progress in a continue token file alongside your input file:
+The tool stores a separate checkpoint alongside your input file for each operation:
 
-- `<input_file>_continue.txt`
+- `<input_file>_modify_continue.json`
+- `<input_file>_upload_continue.json`
 
-On interruption (`Ctrl+C`), progress can be resumed on the next run.
+Checkpoints are saved before and after each row. If a row was interrupted or
+failed while in progress, the next run stops because its server-side outcome
+may be unknown. Check Preservica before resuming to avoid repeating changes.
+After resolving the row, edit the checkpoint: set `in_progress` to `false` and
+set `position` to the zero-based position of the next row to process. For
+uploads, also set `last_ref` to the most recently created SO's reference, or
+`null` if there is none. Keep the input file and dummy-mode setting unchanged
+while resuming.
 
-Resume handling is enabled by default in the current CLI workflow.
+Input hashing is enabled by default to detect changes before resuming. Use
+`--no-checkpoint-hash` with either CLI, or `checkpoint_hash=False` in either
+Python class, to disable it. With hashing disabled, input changes cannot be
+detected. A checkpoint saved without a hash must be resumed with hashing
+disabled; check the input before doing so. In-progress row and dummy-mode
+checks still apply.
+
+For uploads, a blank upload reference or `Use Parent` refers to the most
+recently created SO.
+
+Legacy `<input_file>_continue.txt` tokens are no longer supported or removed
+automatically. If one exists, check the previous progress and resolve the token
+manually before starting; its row and parent state cannot be verified.
 
 ## Options File
 
@@ -255,7 +285,7 @@ Default path:
 Override with:
 
 ```bash
-preservica_modify -i /path/to/input.xlsx -u user -s server -opt /path/to/options.properties
+preservica_modify /path/to/input.xlsx -u user -s server -opt /path/to/options.properties
 ```
 
 Current defaults include:
@@ -314,20 +344,20 @@ Current defaults include:
 ### Test credentials only
 
 ```bash
-preservica_modify -i /path/to/input.xlsx -u user -s server --test-login
+preservica_modify /path/to/input.xlsx -u user -s server --test-login
 ```
 
 ### Update title/description/security from spreadsheet
 
 ```bash
-preservica_modify -i /path/to/input.xlsx -u user -s server
+preservica_modify /path/to/input.xlsx -u user -s server
 ```
 
 ### Apply XML updates from local metadata templates
 
 ```bash
 preservica_modify \
-	-i /path/to/input.xlsx \
+	/path/to/input.xlsx \
 	-u user -s server \
 	-mdir /path/to/metadata \
 	-m exact
@@ -336,14 +366,14 @@ preservica_modify \
 ### Clear values using blanks intentionally
 
 ```bash
-preservica_modify -i /path/to/input.xlsx -u user -s server --blank-override
+preservica_modify /path/to/input.xlsx -u user -s server --blank-override
 ```
 
 ### Delete mode (credentials required)
 
 ```bash
 preservica_modify \
-	-i /path/to/input.xlsx \
+	/path/to/input.xlsx \
 	--use-credentials /path/to/credentials.properties \
 	--delete
 ```
@@ -356,7 +386,8 @@ preservica_modify \
 - **No updates happening**: confirm column headers match configured names exactly.
 - **XML not applied**: check metadata mode (`flat` vs `exact`) and template/header alignment.
 - **Move failures**: ensure `Move to` values are valid UUIDs.
-- **Resume confusion**: remove stale `<input>_continue.txt` to force full restart.
+- **Resume confusion**: inspect the relevant checkpoint and verify server-side
+  progress before changing it or starting over.
 
 ## Developers
 

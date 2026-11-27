@@ -9,15 +9,13 @@ license: Apache License 2.0"
 """
 
 from pyPreservica import Entity, EntityType
-import pandas as pd
 from lxml import etree
-import os, re
-from typing import Optional, Union, Dict, List, Hashable, Any
+import os
+from typing import Optional
 import logging
 import configparser
-from getpass import getpass
 
-from preservica_modify.common import check_nan, check_bool, export_csv, export_json, export_xml, export_xl, export_ods
+from preservica_modify.common import check_nan
 from preservica_modify.auth import PreservicaAuth
 from preservica_modify.lookups import LookupMixin
 from preservica_modify.updates import UpdatesMixin
@@ -25,12 +23,7 @@ from preservica_modify.descMetadata import DescriptiveMetadataHandler
 from preservica_modify.continuetokens import ContinueTokenHandler
 from preservica_modify.dataframes import DataFrameHandler
 from preservica_modify.dataRetrieve import DataRetrieve
-try:
-    import keyring
-except Exception:
-    keyring = None
-    class KeyringError(Exception):
-        pass
+from preservica_modify.progress import row_progress
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +33,7 @@ class PreservicaMassMod(PreservicaAuth,
                         DescriptiveMetadataHandler,
                         ContinueTokenHandler,
                         DataFrameHandler,
-                        DataRetrieve,
-                        ):
+                        DataRetrieve):
     """
     Mass Modification Class
     """
@@ -50,6 +42,7 @@ class PreservicaMassMod(PreservicaAuth,
                  metadata_dir: str = os.path.join(os.path.dirname(__file__), "metadata"),
                  blank_override: bool = False,
                  metadata: Optional[str] = None,
+                 delete_metadata_flag: bool = False,
                  descendants: Optional[set] = None,
                  dummy: bool = False,
                  username: Optional[str] = None,
@@ -65,10 +58,14 @@ class PreservicaMassMod(PreservicaAuth,
                  save_password_to_keyring: bool = False,
                  disable_continue: bool = False,
                  column_sensitivity: bool = False,
-                 options_file: str = os.path.join(os.path.dirname(__file__),'options', 'options.properties')):
+                 options_file: str = os.path.join(os.path.dirname(__file__),'options', 'options.properties'),
+                 use_remote_xmls: bool = False,
+                 checkpoint_hash: bool = True,
+                 show_progress: bool = False):
         
         self.metadata_dir = metadata_dir
         self.metadata_flag = metadata
+        self.delete_metadata_flag = delete_metadata_flag
         self.dummy_flag = dummy
         self.blank_override = blank_override
         self.delete_flag = delete
@@ -96,8 +93,11 @@ class PreservicaMassMod(PreservicaAuth,
         self.save_password_to_keyring = save_password_to_keyring
         
         self.disable_continue = disable_continue
+        self.checkpoint_hash = checkpoint_hash
+        self.show_progress = show_progress
 
         self.column_sensitivity = column_sensitivity
+        self.use_remote_xmls = use_remote_xmls
 
         if options_file is None:
             options_file = os.path.join(os.path.dirname(__file__),'options','options.properties')
@@ -129,8 +129,12 @@ class PreservicaMassMod(PreservicaAuth,
         self.FILE_PATH=section.get('FILE_PATH', 'FullName')       
         
         self.ARCREF_FIELD=section.get('ARCREF_FIELD', 'Archive_Reference')
+        self.ARCREF_CODE=section.get('ARCREF_CODE', 'code')
         self.ACCREF_FIELD=section.get('ACCREF_FIELD', 'Accession_Reference')
         self.ACCREF_CODE=section.get('ACCREF_CODE', 'accref')
+
+        self.DELETE_METADATA_FIELD=section.get('DELETE_METADATA_FIELD', 'Delete Metadata')
+        self.DELETE_ALL_METADATA_FIELD=section.get('DELETE_ALL_METADATA_FIELD', 'Delete All Metadata')
         
         logger.debug(f'Configuration loaded: {section}')
 
@@ -190,31 +194,44 @@ class PreservicaMassMod(PreservicaAuth,
         Method to process rows from the data dictionary, handling entity references and document types.
         """
         try:
-            keys, start_pos = self._process_continue_token(data_dict)
-            for idx in keys[start_pos:]:
-                reference_dict = data_dict.get(idx)
-                if reference_dict is not None:
-                    ref = check_nan(reference_dict.get(self.ENTITY_REF))
-                    if ref is None:
-                        logger.warning(f'No reference found for index: {idx}, skipping to next row.')
-                        continue
-                    doc_type = check_nan(reference_dict.get(self.DOCUMENT_TYPE))
-                    if doc_type is None:
-                        logger.warning(f'No document type found for index: {idx}, attempting to retrieve entity without document type.')
-                else:
-                    logger.error(f'No data found for index: {idx}')
-                    raise ValueError(f'No data found for index: {idx}')
-                logger.info(f"Processing Row Index: {idx}, Reference: {ref}")
-                ent = self._process_fetch_ent(ref, doc_type)
-                if ent is not None:
-                    self._process_row_ent(ent, idx, reference_dict)
-                else:
-                    logger.warning(f'Entity not found for reference {ref}, skipping to next row.')
-                    continue
+            keys = list(data_dict.keys())
+            input_hash: Optional[str] = None
+            if self.disable_continue:
+                start_pos = 0
+            else:
+                input_hash = self._input_hash()
+                start_pos, _ = self._load_checkpoint("modify", keys, input_hash)
+            with row_progress(len(keys), start_pos, "Modify rows", self.show_progress) as progress:
+                for position in range(start_pos, len(keys)):
+                    idx = keys[position]
+                    reference_dict = data_dict.get(idx)
+                    if reference_dict is not None:
+                        ref = check_nan(reference_dict.get(self.ENTITY_REF))
+                        if ref is None:
+                            logger.warning(f'No reference found for index: {idx}, skipping to next row.')
+                            if not self.disable_continue:
+                                self._save_checkpoint("modify", position + 1, False, input_hash)
+                            progress.update(1)
+                            continue
+                        doc_type = check_nan(reference_dict.get(self.DOCUMENT_TYPE))
+                        if doc_type is None:
+                            logger.warning(f'No document type found for index: {idx}, attempting to retrieve entity without document type.')
+                    else:
+                        logger.error(f'No data found for index: {idx}')
+                        raise ValueError(f'No data found for index: {idx}')
+                    logger.info(f"Processing Row Index: {idx}, Reference: {ref}")
+                    if not self.disable_continue:
+                        self._save_checkpoint("modify", position, True, input_hash)
+                    ent = self._process_fetch_ent(ref, doc_type)
+                    if ent is not None:
+                        self._process_row_ent(ent, idx, reference_dict)
+                    else:
+                        logger.warning(f'Entity not found for reference {ref}, skipping to next row.')
+                    if not self.disable_continue:
+                        self._save_checkpoint("modify", position + 1, False, input_hash)
+                    progress.update(1)
         except KeyboardInterrupt:
-            logger.warning('Process interrupted by user, exiting...')
-            if self.disable_continue is False:
-                self._save_continue_token(self.input_file, idx)
+            logger.warning('Modification interrupted. Check Preservica before resuming an in-progress row.')
             raise KeyboardInterrupt('Process interrupted by user, exiting...')
         except Exception:
             logger.exception('Error processing rows.')
@@ -266,6 +283,21 @@ class PreservicaMassMod(PreservicaAuth,
             title, description, security = self.xip_lookup(idx)
             self.xip_update(ent,title,description,security)
         self.ident_update(ent, self.ident_lookup(idx, self.IDENTIFIER_DEFAULT))
+
+        if self.delete_metadata_flag is True:
+            self.init_schema_list()
+            if self.delete_individual_metadata_flag is True:
+                delete_meta_check = self.delete_metadata_lookup(idx)
+                if delete_meta_check is True:
+                    for schema in self.schema_list:
+                        self.delete_metadata_update(ent, schema)
+            elif self.delete_all_metadata_flag is True:
+                delete_all_meta_check = self.delete_all_metadata_lookup(idx)
+                if delete_all_meta_check is True:
+                    self.delete_all_metadata_update(ent)
+            else:
+                logger.info("No delete metadata flags are set for this row.")
+
         if self.metadata_flag is not None:
             xmls = self.generate_descriptive_metadata(idx, self.xml_files)
             if xmls is not None:                                
@@ -300,7 +332,7 @@ class PreservicaMassMod(PreservicaAuth,
             self._set_input_flags()
             self.login_preservica()
             if self.metadata_flag is not None:
-                self.init_generate_descriptive_metadata()
+                self.init_generate_descriptive_metadata(remote_xmls=self.use_remote_xmls)
             if self.retention_flag is True:
                 self.get_retentions()
             if self.DOCUMENT_TYPE in self.column_headers:
@@ -308,7 +340,8 @@ class PreservicaMassMod(PreservicaAuth,
             else:
                 data_dict = self.df[[self.ENTITY_REF]].to_dict(orient='index')
             self._process_rows(data_dict)
-            self._remove_continue_token(self.input_file)
+            if not self.disable_continue:
+                self._remove_checkpoint("modify")
             logger.info('Process completed.')
         except KeyError as e:
             logger.exception(f'Key Error: {e}.')
